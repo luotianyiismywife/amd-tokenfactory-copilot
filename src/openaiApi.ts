@@ -10,6 +10,7 @@ import type { AmdModelItem } from "./types";
 import type { StreamUsage } from "./types";
 import { tryParseJSONObject } from "./utils";
 import type { OpenAIChatMessage, OpenAIToolCall } from "./openaiTypes";
+import { logger } from "./logger";
 
 import {
     isImageMimeType,
@@ -206,6 +207,15 @@ export class OpenaiApi {
         um: AmdModelItem | undefined,
         options?: ProvideLanguageModelChatResponseOptions
     ): Record<string, unknown> {
+        // max_tokens — MUST be sent explicitly. The sglang-router managed endpoint
+        // applies a small server-side default completion cap when the field is
+        // absent; reasoning models burn much of it on reasoning_content first, so
+        // answers get truncated after a sentence or two (finish_reason "length")
+        // and the Copilot agent loop just stops. Mirrors TokenRhythm's behavior.
+        if (um?.max_tokens !== undefined) {
+            rb.max_tokens = um.max_tokens;
+        }
+
         // temperature
         if (um?.temperature !== undefined && um.temperature !== null) {
             rb.temperature = um.temperature;
@@ -251,6 +261,11 @@ export class OpenaiApi {
         const decoder = new TextDecoder();
         let buffer = "";
         let cancelDisposable: vscode.Disposable | undefined;
+        // Tool-call flush failures must NOT be silently swallowed: a dropped tool
+        // call makes Copilot Chat see a text-only response, which ends the agent
+        // loop ("answers one sentence then stops"). Collected and rethrown after
+        // the read loop so the user actually sees why the turn ended.
+        let flushError: Error | null = null;
 
         // Immediately cancel the stream when user cancels, so reader.read() won't stay pending
         if (token.onCancellationRequested) {
@@ -281,6 +296,17 @@ export class OpenaiApi {
                     const data = line.slice(5).trim();
                     if (data === "[DONE]") {
                         await this.flushToolCallBuffers(progress, false);
+                        // Leftover unflushed tool calls = incomplete arguments
+                        // (usually output-budget truncation). Record for rethrow.
+                        if (this._toolCallBuffers.size > 0) {
+                            const leftovers = Array.from(this._toolCallBuffers.entries())
+                                .map(([idx, b]) => `#${idx} ${b.name ?? "?"} args="${(b.args || "").slice(0, 120)}"`)
+                                .join("; ");
+                            flushError = flushError ?? new Error(
+                                `Tool call arguments incomplete at end of stream and were dropped: ${leftovers}`
+                            );
+                            this._toolCallBuffers.clear();
+                        }
                         continue;
                     }
 
@@ -318,10 +344,23 @@ export class OpenaiApi {
 
                         await this.processDelta(parsed, progress);
                     } catch (e) {
-                        console.error("[AMD TokenFactory] Failed to parse SSE chunk:", e, "data:", data);
+                        // flushToolCallBuffers(throwOnInvalid=true) throws from
+                        // processDelta on truncated tool call args — capture it
+                        // instead of swallowing (previously the agent loop just
+                        // stopped with no explanation).
+                        if (e instanceof Error && e.message.includes("Invalid JSON for tool call")) {
+                            flushError = flushError ?? e;
+                        } else {
+                            console.error("[AMD TokenFactory] Failed to parse SSE chunk:", e, "data:", data);
+                        }
                     }
                 }
             }
+            // Surface any tool-call flush failure recorded during the stream.
+            if (flushError) {
+                throw flushError;
+            }
+            logger.debug("openai.stream.done", { modelId: this._modelId });
         } catch (e) {
             console.error("[AMD TokenFactory] Streaming response error:", e);
             throw e;

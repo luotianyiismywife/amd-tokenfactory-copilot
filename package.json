@@ -23,7 +23,7 @@
 	"bugs": {
 		"url": "https://github.com/luotianyiismywife/amd-tokenfactory-copilot/issues"
 	},
-	"version": "1.0.0",
+	"version": "1.1.0",
 	"engines": {
 		"vscode": "^1.116.0"
 	},
@@ -44,11 +44,6 @@
 			}
 		],
 		"commands": [
-			{
-				"command": "amdtokenfactory.setApiKey",
-				"category": "%commandCategory%",
-				"title": "%command.setApiKey%"
-			},
 			{
 				"command": "amdtokenfactory.manageApiKeys",
 				"category": "%commandCategory%",
@@ -154,6 +149,13 @@
 					"default": 300000,
 					"minimum": 10000,
 					"description": "%config.requestTimeout.desc%"
+				},
+				"amdTokenFactory.maxOutputTokens": {
+					"type": "number",
+					"default": 32768,
+					"minimum": 1024,
+					"maximum": 262144,
+					"description": "%config.maxOutputTokens.desc%"
 				},
 				"amdTokenFactory.enableAutoModelDiscovery": {
 					"type": "boolean",

@@ -7,11 +7,13 @@ import {
     addApiKeys,
     getApiKeyMode,
     getApiKeyStore,
+    getKeyDisplayStatus,
     getRotationCursorIndex,
     getTransientExhaustedInfo,
     maskApiKey,
     removeApiKey,
     resetExhaustedKeys,
+    updateApiKey,
     updateKeyAvailability,
     type ApiKeyEntry,
 } from "./keyManager";
@@ -40,8 +42,16 @@ export function activate(context: vscode.ExtensionContext) {
     // Refresh the model list when relevant settings change
     context.subscriptions.push(
         vscode.workspace.onDidChangeConfiguration((e) => {
-            if (e.affectsConfiguration("amdTokenFactory.baseUrl") || e.affectsConfiguration("amdTokenFactory.enableAutoModelDiscovery")) {
-                clearApiModelCache();
+            const requestRebuild =
+                e.affectsConfiguration("amdTokenFactory.baseUrl")
+                || e.affectsConfiguration("amdTokenFactory.enableAutoModelDiscovery")
+                || e.affectsConfiguration("amdTokenFactory.maxOutputTokens")
+                || e.affectsConfiguration("amdTokenFactory.temperature")
+                || e.affectsConfiguration("amdTokenFactory.top_p");
+            if (requestRebuild) {
+                if (e.affectsConfiguration("amdTokenFactory.baseUrl") || e.affectsConfiguration("amdTokenFactory.enableAutoModelDiscovery")) {
+                    clearApiModelCache();
+                }
                 clearModelConfigs();
                 provider.notifyModelListChanged();
             }
@@ -55,36 +65,6 @@ export function activate(context: vscode.ExtensionContext) {
             clearModelConfigs();
             provider.notifyModelListChanged();
             vscode.window.showInformationMessage(l10n("Model list refreshed"));
-        })
-    );
-
-    // Legacy single-key flow: writes into the multi-key store as a single-element list
-    context.subscriptions.push(
-        vscode.commands.registerCommand("amdtokenfactory.setApiKey", async () => {
-            const store = await getApiKeyStore(context.secrets);
-            const existing = store.keys.length > 0 ? store.keys[0]?.value : undefined;
-            const apiKey = await vscode.window.showInputBox({
-                title: l10n("AMD TokenFactory Provider API Key"),
-                prompt: existing ? l10n("Update your AMD TokenFactory API key (rc-...)") : l10n("Enter your AMD TokenFactory API key (rc-...)"),
-                ignoreFocusOut: true,
-                password: true,
-                value: existing ?? "",
-            });
-            if (apiKey === undefined) {
-                return; // user canceled
-            }
-            if (!apiKey.trim()) {
-                // Clear all keys
-                await context.secrets.store("amdTokenFactory.apiKeys", JSON.stringify({ keys: [] }));
-                vscode.window.showInformationMessage(l10n("API keys cleared."));
-                return;
-            }
-            const replaced = store.keys.filter((k) => k.value !== apiKey.trim());
-            await context.secrets.store(
-                "amdTokenFactory.apiKeys",
-                JSON.stringify({ keys: [...replaced, { value: apiKey.trim(), available: null }] })
-            );
-            vscode.window.showInformationMessage(l10n("API key saved."));
         })
     );
 
@@ -147,47 +127,99 @@ export function activate(context: vscode.ExtensionContext) {
     async function showApiKeyManager(_context: vscode.ExtensionContext): Promise<void> {
         const secrets = _context.secrets;
 
-        const render = (): string => {
+        const modeLabel = (): string => {
             const mode = getApiKeyMode();
-            const modeLabel = mode === "rotation"
+            return mode === "rotation"
                 ? l10n("Rotation mode: next key per request")
                 : l10n("Sticky mode: keep current key until it fails");
-            return modeLabel;
         };
 
-        const pickKey = async (title: string): Promise<ApiKeyEntry | undefined> => {
+        // ---- Select a key (for edit/delete/check) ----
+        const pickKey = async (title: string): Promise<{ index: number; entry: ApiKeyEntry } | undefined> => {
             const store = await getApiKeyStore(secrets);
             if (store.keys.length === 0) {
                 vscode.window.showInformationMessage(l10n("No API keys configured."));
                 return undefined;
             }
             const cursor = getRotationCursorIndex();
-            const items = store.keys.map((entry, index) => {
-                const detailParts: string[] = [];
-                if (entry.label) {
-                    detailParts.push(entry.label);
-                }
-                if (entry.available === true) {
-                    detailParts.push("$(check) " + l10n("available"));
-                } else if (entry.available === false) {
-                    detailParts.push("$(error) " + l10n("unavailable"));
-                }
-                const transient = getTransientExhaustedInfo(entry.value);
-                if (transient) {
-                    detailParts.push(`$(clock) ${l10n("cooling down")} ${formatRemainingSec(transient.remainingSec)}`);
-                }
-                if (index === cursor) {
-                    detailParts.push(`$(arrow-right) ${l10n("Rotation cursor")}`);
-                }
-                return {
-                    label: `${maskApiKey(entry.value)}${index === cursor ? " $(arrow-right)" : ""}`,
-                    description: detailParts.join(" · "),
-                    entry,
-                    index,
-                };
+            const isSticky = getApiKeyMode() === "sticky";
+            const picked = await vscode.window.showQuickPick(
+                store.keys.map((entry, index) => {
+                    const detailParts: string[] = [];
+                    if (entry.label) {
+                        detailParts.push(entry.label);
+                    }
+                    const status = getKeyDisplayStatus(entry);
+                    if (status === "available") {
+                        detailParts.push("$(check) " + l10n("available"));
+                    } else if (status === "unavailable") {
+                        detailParts.push("$(error) " + l10n("unavailable"));
+                    } else if (status === "cooldown") {
+                        const transient = getTransientExhaustedInfo(entry.value);
+                        detailParts.push(`$(clock) ${l10n("cooling down")}${transient ? " " + formatRemainingSec(transient.remainingSec) : ""}`);
+                    } else {
+                        detailParts.push("$(question) " + l10n("Not checked"));
+                    }
+                    if (index === cursor) {
+                        detailParts.push(isSticky ? `$(pinned) ${l10n("Pinned")}` : `$(arrow-right) ${l10n("Rotation cursor")}`);
+                    }
+                    return {
+                        label: maskApiKey(entry.value),
+                        description: detailParts.join(" · "),
+                        entry,
+                        index,
+                    };
+                }),
+                { title, placeHolder: title, ignoreFocusOut: true }
+            );
+            if (!picked) {
+                return undefined;
+            }
+            return { index: picked.index as number, entry: picked.entry as ApiKeyEntry };
+        };
+
+        // ---- Edit API key flow (value / label) ----
+        const editKeyFlow = async (index: number): Promise<void> => {
+            const store = await getApiKeyStore(secrets);
+            const entry = store.keys[index];
+            if (!entry) {
+                return;
+            }
+
+            // 1. Key value (editable; conflicts checked on save)
+            const newValue = await vscode.window.showInputBox({
+                title: l10n("Edit API Key"),
+                prompt: l10n("Edit the API key value (leave unchanged to keep)"),
+                ignoreFocusOut: true,
+                password: true,
+                value: entry.value,
             });
-            const picked = await vscode.window.showQuickPick(items, { title, placeHolder: title });
-            return picked?.entry;
+            if (newValue === undefined) {
+                return;
+            }
+
+            // 2. Label
+            const newLabel = await vscode.window.showInputBox({
+                title: l10n("Edit API Key"),
+                prompt: l10n("Edit the label (empty to clear)"),
+                ignoreFocusOut: true,
+                value: entry.label ?? "",
+            });
+            if (newLabel === undefined) {
+                return;
+            }
+
+            const result = await updateApiKey(secrets, entry.value, {
+                value: newValue.trim(),
+                label: newLabel.trim(),
+            });
+            if (result.ok) {
+                vscode.window.showInformationMessage(l10n("API key updated"));
+            } else if (result.conflict) {
+                vscode.window.showWarningMessage(l10n("API key value conflicts with another existing key"));
+            } else {
+                vscode.window.showWarningMessage(l10n("Failed to update API key"));
+            }
         };
 
         const checkAvailabilityFlow = async (entry: ApiKeyEntry): Promise<void> => {
@@ -208,23 +240,128 @@ export function activate(context: vscode.ExtensionContext) {
             );
         };
 
-        const mainMenu = async (): Promise<void> => {
+        // ---- Per-key action submenu (opened by clicking a key row) ----
+        const keyActionMenu = async (index: number): Promise<void> => {
             const store = await getApiKeyStore(secrets);
+            const entry = store.keys[index];
+            if (!entry) {
+                return;
+            }
             const items: (vscode.QuickPickItem & { action?: string })[] = [
-                { label: `$(add) ${l10n("Add API Key (rc-...)")}`, action: "add" },
-                { label: `$(clippy) ${l10n("Batch Import Keys")}`, action: "import" },
+                { label: `$(edit) ${l10n("Edit API Key")}`, action: "edit" },
                 { label: `$(trash) ${l10n("Delete API Key")}`, action: "delete" },
-                { label: `$(debug-restart) ${l10n("Reset Unavailable Keys")}`, action: "reset" },
-                { label: `$(test-view-icon) ${l10n("Check All Keys")}`, action: "checkAll" },
-                { label: `$(zap) ${l10n("Check This Key")}`, action: "checkOne" },
-                { label: `$(info) ${l10nFormat("{0} key(s) configured", String(store.keys.length))}`, action: undefined, description: render() },
+                { label: `$(test-view-icon) ${l10n("Check This Key")}`, action: "check" },
             ];
-            const picked = await vscode.window.showQuickPick(items, { title: l10n("Manage API Keys") });
+            const picked = await vscode.window.showQuickPick(items, {
+                title: l10nFormat("Key {0}", maskApiKey(entry.value)),
+                placeHolder: l10n("Manage API Keys"),
+                ignoreFocusOut: true,
+            });
             if (!picked?.action) {
                 return;
             }
-
             switch (picked.action) {
+                case "edit":
+                    await editKeyFlow(index);
+                    break;
+                case "delete": {
+                    const confirm = await vscode.window.showWarningMessage(
+                        l10nFormat("Delete key {0}?", maskApiKey(entry.value)),
+                        { modal: true },
+                        l10n("Delete")
+                    );
+                    if (confirm === l10n("Delete")) {
+                        await removeApiKey(secrets, entry.value);
+                        vscode.window.showInformationMessage(l10n("Key deleted."));
+                    }
+                    break;
+                }
+                case "check":
+                    await checkAvailabilityFlow(entry);
+                    break;
+            }
+        };
+
+        // ---- Main menu render: keys listed first (with live status), actions below ----
+        const renderMainMenu = async (): Promise<(vscode.QuickPickItem & { action?: string; index?: number })[]> => {
+            const store = await getApiKeyStore(secrets);
+            const cursor = getRotationCursorIndex();
+            const isSticky = getApiKeyMode() === "sticky";
+            const items: (vscode.QuickPickItem & { action?: string; index?: number })[] = [];
+
+            if (store.keys.length === 0) {
+                items.push({ label: l10n("No API keys configured."), kind: vscode.QuickPickItemKind.Separator });
+            } else {
+                store.keys.forEach((entry, index) => {
+                    const status = getKeyDisplayStatus(entry);
+                    let statusIcon = "$(question)";
+                    let statusText = l10n("Not checked");
+                    if (status === "available") {
+                        statusIcon = "$(check)";
+                        statusText = l10n("available");
+                    } else if (status === "unavailable") {
+                        statusIcon = "$(error)";
+                        statusText = l10n("unavailable");
+                    } else if (status === "cooldown") {
+                        statusIcon = "$(clock)";
+                        const transient = getTransientExhaustedInfo(entry.value);
+                        statusText = transient
+                            ? `${l10n("cooling down")} ${formatRemainingSec(transient.remainingSec)}`
+                            : l10n("cooling down");
+                    }
+                    const detailParts = [
+                        `${statusIcon} ${statusText}`,
+                        index === cursor
+                            ? (isSticky ? `$(pinned) ${l10n("Pinned")}` : `$(arrow-right) ${l10n("Rotation cursor")}`)
+                            : "",
+                        entry.label ? `$(tag) ${entry.label}` : "",
+                    ].filter(Boolean);
+                    items.push({
+                        label: maskApiKey(entry.value),
+                        description: detailParts.join("  ·  "),
+                        index, // no action → clicking a key row opens the per-key submenu
+                    });
+                });
+            }
+
+            items.push({ label: "", kind: vscode.QuickPickItemKind.Separator });
+            items.push({ label: `$(add) ${l10n("Add API Key (rc-...)")}`, action: "add" });
+            items.push({ label: `$(clippy) ${l10n("Batch Import Keys")}`, action: "import" });
+            if (store.keys.length > 0) {
+                items.push({ label: `$(edit) ${l10n("Edit API Key")}`, action: "edit" });
+                items.push({ label: `$(trash) ${l10n("Delete API Key")}`, action: "delete" });
+                items.push({ label: `$(test-view-icon) ${l10n("Check This Key")}`, action: "checkOne" });
+                items.push({ label: `$(zap) ${l10n("Check All Keys")}`, action: "checkAll" });
+                items.push({ label: `$(debug-restart) ${l10n("Reset Unavailable Keys")}`, action: "reset" });
+            }
+            items.push({
+                label: `$(info) ${l10nFormat("{0} key(s) configured", String(store.keys.length))}`,
+                description: modeLabel(),
+            });
+            return items;
+        };
+
+        // ---- Main loop (runs until the user presses Esc) ----
+        while (true) {
+            const items = await renderMainMenu();
+            const picked = await vscode.window.showQuickPick(items, {
+                title: l10n("Manage API Keys"),
+                placeHolder: l10n("Manage API Keys"),
+                ignoreFocusOut: true,
+            });
+            if (!picked) {
+                return; // canceled
+            }
+            const pickedAction = (picked as { action?: string }).action;
+            const pickedIndex = (picked as { index?: number }).index;
+
+            if (!pickedAction && typeof pickedIndex === "number") {
+                // Clicked a key row → per-key submenu (edit/delete/check)
+                await keyActionMenu(pickedIndex);
+                continue;
+            }
+
+            switch (pickedAction) {
                 case "add": {
                     const keyValue = await vscode.window.showInputBox({
                         title: l10n("Add API Key"),
@@ -270,18 +407,25 @@ export function activate(context: vscode.ExtensionContext) {
                     vscode.window.showInformationMessage(l10nFormat("Imported {0} key(s), skipped {1} duplicate(s).", String(added), String(skipped)));
                     break;
                 }
+                case "edit": {
+                    const keyPick = await pickKey(l10n("Edit API Key"));
+                    if (keyPick) {
+                        await editKeyFlow(keyPick.index);
+                    }
+                    break;
+                }
                 case "delete": {
                     const keyPick = await pickKey(l10n("Delete API Key"));
                     if (!keyPick) {
                         break;
                     }
                     const confirm = await vscode.window.showWarningMessage(
-                        l10nFormat("Delete key {0}?", maskApiKey(keyPick.value)),
+                        l10nFormat("Delete key {0}?", maskApiKey(keyPick.entry.value)),
                         { modal: true },
                         l10n("Delete")
                     );
                     if (confirm === l10n("Delete")) {
-                        await removeApiKey(secrets, keyPick.value);
+                        await removeApiKey(secrets, keyPick.entry.value);
                         vscode.window.showInformationMessage(l10n("Key deleted."));
                     }
                     break;
@@ -300,10 +444,9 @@ export function activate(context: vscode.ExtensionContext) {
                 }
                 case "checkOne": {
                     const keyPick = await pickKey(l10n("Check This Key"));
-                    if (!keyPick) {
-                        break;
+                    if (keyPick) {
+                        await checkAvailabilityFlow(keyPick.entry);
                     }
-                    await checkAvailabilityFlow(keyPick);
                     break;
                 }
                 case "checkAll": {
@@ -339,13 +482,10 @@ export function activate(context: vscode.ExtensionContext) {
                     );
                     break;
                 }
+                default:
+                    return;
             }
-
-            // Loop back into the menu
-            await showApiKeyManager(_context);
-        };
-
-        await mainMenu();
+        }
     }
 }
 

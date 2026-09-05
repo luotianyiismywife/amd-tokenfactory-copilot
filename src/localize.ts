@@ -39,6 +39,16 @@ const zhCN: Record<string, string> = {
     "available": "可用",
     "unavailable": "不可用",
     "cooling down": "冷却中",
+    "Not checked": "未检测",
+    "Pinned": "固定中",
+    "Rotation cursor": "轮询游标",
+    "Edit API Key": "编辑 API Key",
+    "Edit the API key value (leave unchanged to keep)": "编辑 API Key 值（保持不变则原样保留）",
+    "Edit the label (empty to clear)": "编辑备注（留空清除）",
+    "API key updated": "API Key 已更新",
+    "API key value conflicts with another existing key": "该 Key 值与已有 Key 冲突",
+    "Failed to update API key": "API Key 更新失败",
+    "Key {0}": "Key {0}",
     "Rotation mode: next key per request": "轮询模式：每次请求换下一个 Key",
     "Sticky mode: keep current key until it fails": "固定模式：一直使用当前 Key，失效后才切换",
     "{0} key(s) configured": "已配置 {0} 个 Key",
@@ -74,6 +84,8 @@ const zhCN: Record<string, string> = {
     // zero-answer budget exhaustion
     "The model used all available output tokens on reasoning (finish reason: {0}) and produced no answer. Lower the reasoning effort, or turn thinking off and retry.":
         "模型将全部输出 token 预算耗在了思考上（结束原因：{0}），没有生成任何回答。请降低推理强度或关闭思考后重试。",
+    "The response was cut off because the output token budget ran out (finish reason: {0}). Increase amdTokenFactory.maxOutputTokens in settings and retry.":
+        "回答因输出 token 预算耗尽被截断（结束原因：{0}）。请在设置中调大 amdTokenFactory.maxOutputTokens 后重试。",
 
     // statusBar
     "({0} cached, {1}%)": "(已缓存 {0}，命中率 {1}%)",

@@ -14,6 +14,9 @@ export interface AmdModelItem {
     reasoning?: boolean;
     /** Whether to include reasoning_content in assistant messages sent back to the API. */
     include_reasoning_in_request?: boolean;
+    /** Completion budget sent as max_tokens. Must be explicit: the AMD router's
+     * server-side default cap is small and silently truncates answers. */
+    max_tokens?: number;
     /** Optional sampling parameter overrides (from settings). */
     temperature?: number | null;
     top_p?: number | null;

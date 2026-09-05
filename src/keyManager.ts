@@ -426,6 +426,27 @@ export async function resetExhaustedKeys(secrets: vscode.SecretStorage, resetPer
 }
 
 // ---------------------------------------------------------------------------
+// 供 UI 展示的状态辅助
+// ---------------------------------------------------------------------------
+
+/** key 的展示状态：available / unavailable / unknown / cooldown */
+export type KeyDisplayStatus = "available" | "unavailable" | "unknown" | "cooldown";
+
+export function getKeyDisplayStatus(entry: ApiKeyEntry): KeyDisplayStatus {
+    const transient = getTransientExhaustedInfo(entry.value);
+    if (transient) {
+        return "cooldown";
+    }
+    if (entry.available === true) {
+        return "available";
+    }
+    if (entry.available === false) {
+        return "unavailable";
+    }
+    return "unknown";
+}
+
+// ---------------------------------------------------------------------------
 // 增删改
 // ---------------------------------------------------------------------------
 
@@ -467,21 +488,33 @@ export async function addApiKeys(
     return { added, skipped };
 }
 
-/** 更新 key 的备注 */
+/**
+ * 编辑指定 key（key 值 / 备注）。
+ * 修改 key 值时会校验不与其它已存在 key 冲突。
+ * 仅更新调用方提供的字段（undefined 表示不修改）。
+ */
 export async function updateApiKey(
     secrets: vscode.SecretStorage,
     oldValue: string,
-    update: { label?: string }
-): Promise<void> {
+    update: { value?: string; label?: string }
+): Promise<{ ok: boolean; conflict?: boolean }> {
     const store = await getApiKeyStore(secrets);
     const entry = store.keys.find((k) => k.value === oldValue);
     if (!entry) {
-        return;
+        return { ok: false };
+    }
+    if (update.value !== undefined && update.value.trim()) {
+        const newValue = update.value.trim();
+        if (newValue !== entry.value && store.keys.some((k) => k.value === newValue)) {
+            return { ok: false, conflict: true }; // 与其他 key 冲突
+        }
+        entry.value = newValue;
     }
     if (update.label !== undefined) {
         entry.label = update.label || undefined;
     }
     await saveApiKeyStore(secrets, store);
+    return { ok: true };
 }
 
 /** 删除指定 key（按值匹配），同时清瞬态冷却 */

@@ -1,7 +1,6 @@
 {
 	"providerDisplayName": "AMD TokenFactory",
 	"commandCategory": "AMD TokenFactory",
-	"command.setApiKey": "Set API Key",
 	"command.manageApiKeys": "Manage API Keys (multi-key rotation)",
 	"command.getApiKey": "Open AMD TokenFactory Website",
 	"command.refreshModels": "Refresh Model List",
@@ -17,6 +16,7 @@
 	"config.exhaustedCooldownMin.desc": "Cooldown duration in minutes for keys that hit transient errors (e.g. 429 rate limit).",
 	"config.transientRetryTimes.desc": "How many times to automatically retry the whole round when all keys are in transient cooldown.",
 	"config.requestTimeout.desc": "Request timeout in milliseconds.",
+	"config.maxOutputTokens.desc": "Per-request output token budget sent as max_tokens. Increase this if responses get cut off (finish reason: length).",
 	"config.enableAutoModelDiscovery.desc": "Discover the model list from the API /models endpoint automatically.",
 	"config.maxInputTokensRatio.desc": "Ratio of the real context window declared as max input tokens (controls Copilot auto-compaction).",
 	"config.temperature.desc": "Sampling temperature. Leave null to not send the parameter.",

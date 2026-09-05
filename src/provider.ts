@@ -52,12 +52,14 @@ export const REASON_TEXT: Record<string, string> = {
 };
 
 /**
- * Detect a finished stream that exhausted its token budget (finish/stop reason
- * "length" or "max_tokens") without producing any answer text. This happens
- * with reasoning models when thinking consumes the whole max_tokens budget,
- * and previously surfaced in Copilot Chat as "Sorry, no response was returned."
- * with zero explanation. Throwing a descriptive error makes the root cause
- * visible to the user and excludes this silent-empty path.
+ * Detect a stream that exhausted its token budget (finish/stop reason
+ * "length" or "max_tokens"). Two flavors:
+ * - No answer text at all: reasoning consumed the whole budget (previously
+ *   surfaced as "Sorry, no response was returned." with zero explanation).
+ * - Partial answer text: the reply was cut off mid-sentence — previously
+ *   silent, making it look like "the AI answers one sentence then stops"
+ *   and requiring the user to keep typing "continue".
+ * Throwing a descriptive error in both cases makes the root cause visible.
  */
 function checkZeroAnswerBudgetExhausted(
     api: OpenaiApi,
@@ -67,16 +69,25 @@ function checkZeroAnswerBudgetExhausted(
     const finishReason = api.lastFinishReason;
     if (
         finishReason &&
-        (finishReason === "length" || finishReason === "max_tokens") &&
-        collectedOutputText.join("").trim().length === 0
+        (finishReason === "length" || finishReason === "max_tokens")
     ) {
-        logger.error("request.zeroAnswer", {
+        const hasText = collectedOutputText.join("").trim().length > 0;
+        logger.error("request.budgetExhausted", {
             modelId,
             finishReason,
+            hasPartialText: hasText,
         });
+        if (!hasText) {
+            throw new Error(
+                l10nFormat(
+                    "The model used all available output tokens on reasoning (finish reason: {0}) and produced no answer. Lower the reasoning effort, or turn thinking off and retry.",
+                    finishReason
+                )
+            );
+        }
         throw new Error(
             l10nFormat(
-                "The model used all available output tokens on reasoning (finish reason: {0}) and produced no answer. Lower the reasoning effort, or turn thinking off and retry.",
+                "The response was cut off because the output token budget ran out (finish reason: {0}). Increase amdTokenFactory.maxOutputTokens in settings and retry.",
                 finishReason
             )
         );

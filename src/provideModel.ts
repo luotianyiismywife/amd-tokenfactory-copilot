@@ -17,7 +17,6 @@ import { l10n } from "./localize";
 const EXTENSION_LABEL = "AMD TokenFactory";
 const DEFAULT_CONTEXT_LENGTH = 128000;
 const DEFAULT_MAX_TOKENS = 32768;
-
 // ── 内置默认模型清单（兜底，零配置可用）──
 const BUILT_IN_MODELS: AmdModelItem[] = [
     {
@@ -64,6 +63,17 @@ const _apiModelConfigs = new Map<string, AmdModelItem>();
 export function getMaxInputTokensRatio(): number {
     const v = vscode.workspace.getConfiguration("amdTokenFactory").get<number>("maxInputTokensRatio", 1.0);
     return Number.isFinite(v) ? Math.min(1.0, Math.max(0.1, v)) : 1.0;
+}
+
+/**
+ * Read the configured per-request completion budget (sent as max_tokens).
+ * MUST be sent explicitly: the AMD router's server-side default cap is small
+ * and silently truncates answers after a sentence or two, which makes the
+ * Copilot agent loop stop and look like "the AI answers once and quits".
+ */
+export function getMaxOutputTokens(): number {
+    const v = vscode.workspace.getConfiguration("amdTokenFactory").get<number>("maxOutputTokens", DEFAULT_MAX_TOKENS);
+    return Number.isFinite(v) && v >= 1024 ? Math.floor(v) : DEFAULT_MAX_TOKENS;
 }
 
 /**
@@ -128,7 +138,7 @@ function buildModelInfo(item: AmdModelItem, apiMeta: ApiModelMetadata | undefine
         // context window so VS Code's agent auto-compaction (~90% of maxInputTokens)
         // can fire before the context actually fills up.
         maxInputTokens: Math.floor(contextLength * getMaxInputTokensRatio()),
-        maxOutputTokens: DEFAULT_MAX_TOKENS,
+        maxOutputTokens: getMaxOutputTokens(),
         isUserSelectable: true,
         capabilities: {
             toolCalling: toolCalling,
@@ -163,6 +173,7 @@ function storeModelConfig(item: AmdModelItem, apiMeta: ApiModelMetadata | undefi
         tools: apiMeta?.tools ?? item.tools ?? true,
         reasoning: hasReasoning,
         include_reasoning_in_request: hasReasoning,
+        max_tokens: getMaxOutputTokens(),
         temperature: getTemperature(),
         top_p: getTopP(),
     };
