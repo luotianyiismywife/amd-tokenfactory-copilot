@@ -37,7 +37,7 @@ description: "Use when: 需要操作浏览器（市场上传/审核、GitHub Rel
 4. 点击 **Upload** → 出现 reCAPTCHA 验证（**需用户手动完成**）→ 验证后自动上传
 5. 列表显示 `Verifying <新版本>` → 等待审核通过
 
-> ✅ **已验证：市场登录页点「使用 GitHub 登录」可免密登录**——Microsoft 登录页（`login.microsoftonline.com`，URL 带 `githubsi=true`）有「使用 GitHub 登录」按钮。**注意**：① `githubsi=true` 参数**不会**自动跳 GitHub 授权，必须**手动点击**该按钮；② 该按钮是 JS 事件绑定，**`click_element` 会超时/失败，必须用 `run_playwright_code` + `page.evaluate(() => btn.click())` 强制触发**。完整流程：JS 点击按钮 → 跳 `github.com/login/oauth/authorize`（GitHub 已登录则自动回跳）→ `login.live.com/HandleGithubResponse.srf` → 「保持登录状态?」确认页 → 点「是」→ 进入市场管理页。GitHub 与市场登录态在同一浏览器会话内**共享**；但**新开浏览器页/新会话仍要求重新登录**。
+> ✅ **已验证：市场登录页点「使用 GitHub 登录」可免密登录**——Microsoft 登录页（`login.microsoftonline.com`，URL 带 `githubsi=true`）有「使用 GitHub 登录」按钮。**注意**：① `githubsi=true` 参数**不会**自动跳 GitHub 授权，必须**手动点击**该按钮；② 该按钮是 JS 事件绑定，**`click_element` 会超时/失败，必须用 `run_playwright_code` + `page.evaluate(() => btn.click())` 强制触发**；③ **该按钮不是 `<button>` 元素，而是 Knockout 绑定的 `div[role=button][aria-label="使用 GitHub 登录"]`**——`querySelectorAll('button')` 找不到它（会误报 not found），必须用 `document.querySelector('div[aria-label="使用 GitHub 登录"]')` 精准选择（2026-09-06 v1.1.0 发布实测）。完整流程：JS 点击按钮 → 跳 `github.com/login/oauth/authorize`（GitHub 已登录则自动回跳）→ `login.live.com/HandleGithubResponse.srf` → 「保持登录状态?」确认页 → 点「是」→ 进入市场管理页。GitHub 与市场登录态在同一浏览器会话内**共享**；但**新开浏览器页/新会话仍要求重新登录**。
 
 > ⚠️ **教训**：市场上传的 reCAPTCHA 验证**必须能访问 google.com**。中国大陆网络下内置浏览器会报"无法连接到 reCAPTCHA 服务"（被 CSP `connect-src` 拦截 + `ERR_ABORTED`/`ERR_BLOCKED_BY_ORB`），**刷新无效**。此时应**改用外部浏览器（Chrome/Edge，配代理插件）手动上传**，或开代理后重试内置浏览器。
 
@@ -55,6 +55,7 @@ description: "Use when: 需要操作浏览器（市场上传/审核、GitHub Rel
    await chooser.setFiles('绝对路径\\amd-tokenfactory-copilot-<version>.vsix');
    ```
    > ⚠️ **注意**：vsix 不能拖进正文编辑器（GitHub 不支持该类型作为正文附件），必须走**二进制附件区**（页面底部）。
+   > ✅ **已验证流程（2026-09-06 v1.1.0）**：①「Attach binaries」按钮 `getByRole().click()` 会超时，需 JS 强制点击；② 点击后若改用 `page.setInputFiles('input[type=file]', ...)` 会命中**正文编辑器**的隐藏 input，报 422 "We don't support that file type"——必须用 `waitForEvent('filechooser')` + `chooser.setFiles()` 走 filechooser 事件；③ 上传成功后附件区显示文件名 + `(0.05 MB)`，同时页面自动存草稿（"A draft of this release has been saved!"），此时再点 Publish release。
 4. 点击 **Publish release**
 
 ### 1.4 版本号与发布命名规则（重要）
