@@ -1,0 +1,10 @@
+.vscode/**
+.copilot/**
+src/**
+node_modules/**
+scripts/**
+.gitignore
+tsconfig.json
+eslint.config.mjs
+**/*.map
+**/*.ts

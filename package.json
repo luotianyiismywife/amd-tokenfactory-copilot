@@ -1,0 +1,215 @@
+{
+	"name": "amd-tokenfactory-copilot",
+	"publisher": "luotianyiismywife",
+	"displayName": "AMD TokenFactory Provider for Copilot",
+	"description": "Integrate AMD TokenFactory (Radeon AI) models into GitHub Copilot Chat",
+	"keywords": [
+		"ai",
+		"chat",
+		"copilot",
+		"github-copilot",
+		"language-models",
+		"llm",
+		"amd",
+		"tokenfactory",
+		"radeon",
+		"openai-compatible"
+	],
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/luotianyiismywife/amd-tokenfactory-copilot"
+	},
+	"homepage": "https://github.com/luotianyiismywife/amd-tokenfactory-copilot",
+	"bugs": {
+		"url": "https://github.com/luotianyiismywife/amd-tokenfactory-copilot/issues"
+	},
+	"version": "1.0.0",
+	"engines": {
+		"vscode": "^1.116.0"
+	},
+	"categories": [
+		"AI",
+		"Chat"
+	],
+	"license": "MIT",
+	"activationEvents": [
+		"onStartupFinished"
+	],
+	"contributes": {
+		"languageModelChatProviders": [
+			{
+				"vendor": "amdtokenfactory",
+				"displayName": "%providerDisplayName%",
+				"managementCommand": "amdtokenfactory.manageApiKeys"
+			}
+		],
+		"commands": [
+			{
+				"command": "amdtokenfactory.setApiKey",
+				"category": "%commandCategory%",
+				"title": "%command.setApiKey%"
+			},
+			{
+				"command": "amdtokenfactory.manageApiKeys",
+				"category": "%commandCategory%",
+				"title": "%command.manageApiKeys%"
+			},
+			{
+				"command": "amdtokenfactory.getApiKey",
+				"category": "%commandCategory%",
+				"title": "%command.getApiKey%"
+			},
+			{
+				"command": "amdtokenfactory.refreshModels",
+				"category": "%commandCategory%",
+				"title": "%command.refreshModels%"
+			},
+			{
+				"command": "amdtokenfactory.openSettings",
+				"category": "%commandCategory%",
+				"title": "%command.openSettings%"
+			}
+		],
+		"configuration": {
+			"title": "%config.title%",
+			"properties": {
+				"amdTokenFactory.baseUrl": {
+					"type": "string",
+					"default": "https://developer.amd.com.cn/radeon/api/v1",
+					"description": "%config.baseUrl.desc%"
+				},
+				"amdTokenFactory.apiKeyMode": {
+					"type": "string",
+					"enum": [
+						"rotation",
+						"sticky"
+					],
+					"default": "rotation",
+					"enumDescriptions": [
+						"%config.apiKeyMode.enum.rotation.desc%",
+						"%config.apiKeyMode.enum.sticky.desc%"
+					],
+					"description": "%config.apiKeyMode.desc%"
+				},
+				"amdTokenFactory.apiKeyRotationStatusCodes": {
+					"type": "array",
+					"items": {
+						"type": "number"
+					},
+					"default": [
+						401,
+						429,
+						500,
+						502,
+						503,
+						504
+					],
+					"description": "%config.apiKeyRotationStatusCodes.desc%"
+				},
+				"amdTokenFactory.apiKeyRotationErrorPatterns": {
+					"type": "array",
+					"items": {
+						"type": "string"
+					},
+					"default": [
+						"rate limit",
+						"rate_limit",
+						"concurrency",
+						"invalid bearer token",
+						"invalid api key",
+						"unauthorized",
+						"quota"
+					],
+					"description": "%config.apiKeyRotationErrorPatterns.desc%"
+				},
+				"amdTokenFactory.transientRetryStatusCodes": {
+					"type": "array",
+					"items": {
+						"type": "number"
+					},
+					"default": [
+						429,
+						500,
+						502,
+						503,
+						504
+					],
+					"description": "%config.transientRetryStatusCodes.desc%"
+				},
+				"amdTokenFactory.exhaustedCooldownMin": {
+					"type": "number",
+					"default": 5,
+					"minimum": 0,
+					"description": "%config.exhaustedCooldownMin.desc%"
+				},
+				"amdTokenFactory.transientRetryTimes": {
+					"type": "number",
+					"default": 3,
+					"minimum": 0,
+					"maximum": 10,
+					"description": "%config.transientRetryTimes.desc%"
+				},
+				"amdTokenFactory.requestTimeout": {
+					"type": "number",
+					"default": 300000,
+					"minimum": 10000,
+					"description": "%config.requestTimeout.desc%"
+				},
+				"amdTokenFactory.enableAutoModelDiscovery": {
+					"type": "boolean",
+					"default": true,
+					"description": "%config.enableAutoModelDiscovery.desc%"
+				},
+				"amdTokenFactory.maxInputTokensRatio": {
+					"type": "number",
+					"default": 1.0,
+					"minimum": 0.1,
+					"maximum": 1.0,
+					"description": "%config.maxInputTokensRatio.desc%"
+				},
+				"amdTokenFactory.temperature": {
+					"type": [
+						"number",
+						"null"
+					],
+					"default": null,
+					"minimum": 0,
+					"maximum": 2,
+					"description": "%config.temperature.desc%"
+				},
+				"amdTokenFactory.top_p": {
+					"type": [
+						"number",
+						"null"
+					],
+					"default": null,
+					"minimum": 0,
+					"maximum": 1,
+					"description": "%config.top_p.desc%"
+				},
+				"amdTokenFactory.retry.intervalMs": {
+					"type": "number",
+					"default": 1000,
+					"minimum": 100,
+					"description": "%config.retryIntervalMs.desc%"
+				}
+			}
+		}
+	},
+	"main": "./out/extension.js",
+	"scripts": {
+		"vscode:prepublish": "npm run compile",
+		"compile": "tsc -p ./",
+		"lint": "eslint src",
+		"watch": "tsc -watch -p ./",
+		"build": "vsce package"
+	},
+	"devDependencies": {
+		"@types/node": "^22",
+		"@types/vscode": "^1.116.0",
+		"eslint": "^9",
+		"typescript": "^5.9.2",
+		"typescript-eslint": "^8",
+		"@vscode/vsce": "^3"
+	}
+}
