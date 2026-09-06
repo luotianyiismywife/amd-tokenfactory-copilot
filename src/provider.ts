@@ -367,7 +367,14 @@ export class AmdChatModelProvider implements LanguageModelChatProvider {
 
                 const baseUrl = getBaseUrl();
                 const url = `${baseUrl.replace(/\/+$/, "")}/chat/completions`;
-                logger.debug("request.body", { url, key: maskApiKey(currentEntry.value) });
+                // INFO so it lands in the on-disk channel log: without this a
+                // request that dies mid-stream leaves NO trace in the log file.
+                logger.info("request.start", {
+                    url,
+                    key: maskApiKey(currentEntry.value),
+                    model: model.id,
+                    messages: messages.length,
+                });
                 const retryConfig = createRetryConfig();
                 const requestHeaders: Record<string, string> = {
                     "Content-Type": "application/json",
@@ -429,6 +436,11 @@ export class AmdChatModelProvider implements LanguageModelChatProvider {
                     });
                     continue; // try next key
                 }
+                logger.error("request.failed", {
+                    model: model.id,
+                    key: maskApiKey(currentEntry.value),
+                    error: err instanceof Error ? err.message : String(err),
+                });
                 throw err; // non-rotation error (400/403/network…)
             } finally {
                 clearTimeout(timeoutId);

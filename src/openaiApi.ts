@@ -47,6 +47,9 @@ export class OpenaiApi {
     /** Finish/stop reason of the most recent stream (e.g. "length", "stop"). */
     private _lastFinishReason: string | undefined;
 
+    /** Whether the stream terminated with an explicit [DONE] marker. */
+    private _receivedDoneMarker = false;
+
     // Thinking content state management
     private _currentThinkingId: string | null = null;
     private _thinkingBuffer = "";
@@ -295,6 +298,7 @@ export class OpenaiApi {
                     }
                     const data = line.slice(5).trim();
                     if (data === "[DONE]") {
+                        this._receivedDoneMarker = true;
                         await this.flushToolCallBuffers(progress, false);
                         // Leftover unflushed tool calls = incomplete arguments
                         // (usually output-budget truncation). Record for rethrow.
@@ -351,7 +355,11 @@ export class OpenaiApi {
                         if (e instanceof Error && e.message.includes("Invalid JSON for tool call")) {
                             flushError = flushError ?? e;
                         } else {
-                            console.error("[AMD TokenFactory] Failed to parse SSE chunk:", e, "data:", data);
+                            logger.error("openai.stream.chunkParse", {
+                                modelId: this._modelId,
+                                error: e instanceof Error ? e.message : String(e),
+                                data: data.slice(0, 200),
+                            });
                         }
                     }
                 }
@@ -360,9 +368,27 @@ export class OpenaiApi {
             if (flushError) {
                 throw flushError;
             }
-            logger.debug("openai.stream.done", { modelId: this._modelId });
+            if (!this._receivedDoneMarker) {
+                // Stream ended WITHOUT the [DONE] marker: the server (or an
+                // intermediary like an ALB) closed the connection early. The
+                // response looks complete to the caller but is truncated —
+                // log it loudly so "output stops halfway" is diagnosable.
+                logger.warn("openai.stream.earlyEnd", {
+                    modelId: this._modelId,
+                    finishReason: this._lastFinishReason ?? null,
+                    cancelled: token.isCancellationRequested,
+                });
+            } else {
+                logger.info("openai.stream.done", {
+                    modelId: this._modelId,
+                    finishReason: this._lastFinishReason ?? null,
+                });
+            }
         } catch (e) {
-            console.error("[AMD TokenFactory] Streaming response error:", e);
+            logger.error("openai.stream.error", {
+                modelId: this._modelId,
+                error: e instanceof Error ? e.message : String(e),
+            });
             throw e;
         } finally {
             cancelDisposable?.dispose();
@@ -399,7 +425,10 @@ export class OpenaiApi {
                 emitted = true;
             }
         } catch (e) {
-            console.error("[AMD TokenFactory] Failed to process thinking content:", e);
+            logger.error("openai.stream.thinking", {
+                modelId: this._modelId,
+                error: e instanceof Error ? e.message : String(e),
+            });
         }
 
         if (deltaObj?.content) {
@@ -537,7 +566,10 @@ export class OpenaiApi {
             this.flushThinkingBuffer(progress);
             progress.report(new vscode.LanguageModelThinkingPart("", this._currentThinkingId) as unknown as LanguageModelResponsePart);
         } catch (e) {
-            console.error("[AMD TokenFactory] Failed to end thinking sequence:", e);
+            logger.error("openai.stream.thinkingEnd", {
+                modelId: this._modelId,
+                error: e instanceof Error ? e.message : String(e),
+            });
         }
         this._currentThinkingId = null;
         this._thinkingBuffer = "";
