@@ -23,7 +23,7 @@
 	"bugs": {
 		"url": "https://github.com/luotianyiismywife/amd-tokenfactory-copilot/issues"
 	},
-	"version": "1.1.1",
+	"version": "1.1.2",
 	"engines": {
 		"vscode": "^1.116.0"
 	},
@@ -156,6 +156,11 @@
 					"minimum": 1024,
 					"maximum": 262144,
 					"description": "%config.maxOutputTokens.desc%"
+				},
+				"amdTokenFactory.debugLogBody": {
+					"type": "boolean",
+					"default": false,
+					"description": "%config.debugLogBody.desc%"
 				},
 				"amdTokenFactory.enableAutoModelDiscovery": {
 					"type": "boolean",

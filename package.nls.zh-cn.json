@@ -17,6 +17,7 @@
 	"config.transientRetryTimes.desc": "全部 Key 都在瞬态冷却中时，整轮自动重试的次数。",
 	"config.requestTimeout.desc": "请求超时时间（毫秒）。",
 	"config.maxOutputTokens.desc": "每次请求的输出 token 预算（作为 max_tokens 发送）。回答被截断（finish reason: length）时调大此值。",
+	"config.debugLogBody.desc": "把请求体开头与完整响应文本写入 AMD TokenFactory 输出通道用于诊断。日志量大且可能包含对话内容，仅在排查问题时开启。",
 	"config.enableAutoModelDiscovery.desc": "自动从 API /models 端点发现模型列表。",
 	"config.maxInputTokensRatio.desc": "声明的最大输入 token 占真实上下文窗口的比例（控制 Copilot 自动压缩时机）。",
 	"config.temperature.desc": "采样温度。留空 null 表示不发送该参数。",

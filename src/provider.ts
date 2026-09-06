@@ -249,8 +249,13 @@ export class AmdChatModelProvider implements LanguageModelChatProvider {
     ): Promise<void> {
         const config = vscode.workspace.getConfiguration();
         const requestTimeoutMs = config.get<number>("amdTokenFactory.requestTimeout", 300000);
+        // Verbose diagnostics: log the request body and the full response text
+        // to the output channel. Off by default — bodies can be megabytes and
+        // contain conversation content; enable only while debugging.
+        const debugLogBody = config.get<boolean>("amdTokenFactory.debugLogBody", false);
         const apiKeyMode = getApiKeyMode();
         const collectedOutputText: string[] = [];
+        let collectedThinkingChars = 0;
         let usageReportedDuringStream = false;
 
         // Per-request rotation state — must be local so concurrent requests
@@ -266,6 +271,11 @@ export class AmdChatModelProvider implements LanguageModelChatProvider {
                 try {
                     if (value instanceof vscode.LanguageModelTextPart && typeof value.value === "string") {
                         collectedOutputText.push(value.value);
+                    } else if (value instanceof vscode.LanguageModelThinkingPart) {
+                        const thinkingValue = (value as unknown as { value?: unknown }).value;
+                        if (typeof thinkingValue === "string") {
+                            collectedThinkingChars += thinkingValue.length;
+                        }
                     }
                 } catch {
                     // collection is best-effort only
@@ -367,6 +377,8 @@ export class AmdChatModelProvider implements LanguageModelChatProvider {
 
                 const baseUrl = getBaseUrl();
                 const url = `${baseUrl.replace(/\/+$/, "")}/chat/completions`;
+                const bodyJson = JSON.stringify(requestBody);
+                const modelOptions = (options.modelOptions ?? {}) as Record<string, unknown>;
                 // INFO so it lands in the on-disk channel log: without this a
                 // request that dies mid-stream leaves NO trace in the log file.
                 logger.info("request.start", {
@@ -374,7 +386,17 @@ export class AmdChatModelProvider implements LanguageModelChatProvider {
                     key: maskApiKey(currentEntry.value),
                     model: model.id,
                     messages: messages.length,
+                    tools: Array.isArray(requestBody.tools) ? requestBody.tools.length : 0,
+                    bodyLength: bodyJson.length,
+                    reasoningEffort: modelOptions.reasoningEffort ?? null,
                 });
+                if (debugLogBody) {
+                    logger.info("request.body", {
+                        length: bodyJson.length,
+                        head: bodyJson.slice(0, 4000),
+                        truncated: bodyJson.length > 4000,
+                    });
+                }
                 const retryConfig = createRetryConfig();
                 const requestHeaders: Record<string, string> = {
                     "Content-Type": "application/json",
@@ -410,6 +432,30 @@ export class AmdChatModelProvider implements LanguageModelChatProvider {
                 // exhausted, e.g. reasoning burned the whole budget) without
                 // producing ANY answer text.
                 checkZeroAnswerBudgetExhausted(openaiApi, collectedOutputText, model.id);
+
+                // Tail snapshot of the model's ACTUAL output (info level → lands
+                // in the on-disk channel log). When the chat UI shows a reply
+                // "cut off mid-sentence" despite a clean finishReason=stop, this
+                // distinguishes (a) the model really stopped there — tail ends
+                // mid-sentence, tiny textLength — from (b) the full text arrived
+                // and the chat renderer swallowed part of it — tail shows the
+                // intended continuation.
+                const fullOutputText = collectedOutputText.join("");
+                logger.info("response.summary", {
+                    model: model.id,
+                    finishReason: openaiApi.lastFinishReason ?? null,
+                    textParts: collectedOutputText.length,
+                    textLength: fullOutputText.length,
+                    thinkingChars: collectedThinkingChars,
+                    tail: fullOutputText.slice(debugLogBody ? -2000 : -200),
+                });
+                if (debugLogBody && fullOutputText) {
+                    logger.info("response.text", {
+                        length: fullOutputText.length,
+                        text: fullOutputText.slice(0, 8000),
+                        truncated: fullOutputText.length > 8000,
+                    });
+                }
             } catch (err) {
                 // User cancellation / timeout → re-throw so the outer catch handles them
                 if (token.isCancellationRequested) {

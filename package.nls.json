@@ -17,6 +17,7 @@
 	"config.transientRetryTimes.desc": "How many times to automatically retry the whole round when all keys are in transient cooldown.",
 	"config.requestTimeout.desc": "Request timeout in milliseconds.",
 	"config.maxOutputTokens.desc": "Per-request output token budget sent as max_tokens. Increase this if responses get cut off (finish reason: length).",
+	"config.debugLogBody.desc": "Log request body head and full response text to the AMD TokenFactory output channel for diagnostics. Verbose and may contain conversation content — enable only while debugging.",
 	"config.enableAutoModelDiscovery.desc": "Discover the model list from the API /models endpoint automatically.",
 	"config.maxInputTokensRatio.desc": "Ratio of the real context window declared as max input tokens (controls Copilot auto-compaction).",
 	"config.temperature.desc": "Sampling temperature. Leave null to not send the parameter.",
