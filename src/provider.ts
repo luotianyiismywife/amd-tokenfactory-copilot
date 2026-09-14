@@ -220,7 +220,10 @@ export class AmdChatModelProvider implements LanguageModelChatProvider {
         options: PrepareLanguageModelChatModelOptions,
         _token: CancellationToken
     ): Promise<LanguageModelChatInformation[]> {
-        return prepareLanguageModelChatInformation(options, _token, this.secrets, getBaseUrl());
+        // Background model-list revalidation (triggered inside prepare when the
+        // cache is stale) fires this callback on real changes so VS Code
+        // rebuilds the picker without user interaction.
+        return prepareLanguageModelChatInformation(options, _token, this.secrets, getBaseUrl(), () => this.notifyModelListChanged());
     }
 
     /**

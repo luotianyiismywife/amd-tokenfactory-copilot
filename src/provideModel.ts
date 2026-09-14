@@ -9,7 +9,7 @@ import * as vscode from "vscode";
 import { CancellationToken, LanguageModelChatInformation, PrepareLanguageModelChatModelOptions } from "vscode";
 
 import { logger } from "./logger";
-import { getApiModelIds, getApiModelMetadataList, isApiFetchSuccessful } from "./apiModelList";
+import { getApiModelIds, getApiModelMetadataList, isApiFetchSuccessful, revalidateApiModelList } from "./apiModelList";
 import { getPrimaryApiKey } from "./keyManager";
 import type { AmdModelItem, ApiModelMetadata } from "./types";
 import { l10n } from "./localize";
@@ -43,11 +43,37 @@ const BUILT_IN_MODELS: AmdModelItem[] = [
         tools: true,
         reasoning: true,
     },
+    // MiniCPM5-1B 已从 API 下架（2026-09-14 实测换成 2B）；兜底清单同步为当前真实状态
     {
-        id: "MiniCPM5-1B",
-        displayName: "MiniCPM 5 1B",
+        id: "MiniCPM5-2B",
+        displayName: "MiniCPM 5 2B",
         context_length: 131072,
         vision: false,
+        tools: true,
+        reasoning: true,
+    },
+    {
+        id: "Qwen3.8-27B",
+        displayName: "Qwen 3.8 27B",
+        context_length: 131072,
+        vision: false,
+        tools: true,
+        reasoning: true,
+    },
+];
+
+// ── 白名单模型（/models 未收录但实测可调用的模型）──
+// 门户先行上架、清单接口滞后：DeepSeek-V4.1-Flash 在门户 "Public Free" 区在列
+// （ctx 1M、vision/tools/reasoning 全支持），实测 /chat/completions 200，
+// 但 /models 端点不返回它（2026-09-14 实测，见 .copilot/api-reference.md §6.5）。
+// 注入规则：仅当 /models 未返回该模型时注入；将来 /models 收录后由 API
+// 元数据（更新鲜）通过自动发现接管，白名单自动让位不产生重复。
+const WHITELISTED_MODELS: AmdModelItem[] = [
+    {
+        id: "DeepSeek-V4.1-Flash",
+        displayName: "DeepSeek V4.1 Flash",
+        context_length: 1048576,
+        vision: true,
         tools: true,
         reasoning: true,
     },
@@ -211,16 +237,23 @@ export function clearModelConfigs(): void {
  * - Refreshes built-in models with API metadata
  * - Discovers new models from the API that are not in the built-in list
  *
+ * Serving strategy (stale-while-revalidate):
+ * - First open with no cache: blocking fetch so the real list shows immediately.
+ * - Otherwise: the cached list is returned instantly (picker never waits on
+ *   the network) and a background revalidation runs; when it brings changes,
+ *   `onModelsRefreshed` fires so VS Code rebuilds the picker with fresh data.
+ *
  * Falls back to the full built-in list if the API is unreachable or no key exists.
  */
 export async function prepareLanguageModelChatInformation(
     options: PrepareLanguageModelChatModelOptions,
     _token: CancellationToken,
     _secrets: vscode.SecretStorage,
-    baseUrl: string
+    baseUrl: string,
+    onModelsRefreshed?: () => void
 ): Promise<LanguageModelChatInformation[]> {
-    // Start with the built-in list (zero-config fallback)
-    let items: AmdModelItem[] = [...BUILT_IN_MODELS];
+    // Start with the built-in list (zero-config fallback) + whitelist models
+    let items: AmdModelItem[] = [...BUILT_IN_MODELS, ...WHITELISTED_MODELS];
 
     const enableAutoDiscovery = vscode.workspace.getConfiguration("amdTokenFactory").get<boolean>("enableAutoModelDiscovery", true);
     if (enableAutoDiscovery) {
@@ -255,8 +288,25 @@ export async function prepareLanguageModelChatInformation(
             if (discovered.length > 0) {
                 logger.info("models.discovery", { discovered: discovered.map((m) => m.id) });
             }
-            items = [...items, ...discovered];
+
+            // Step 3: inject whitelist models the /models endpoint still omits.
+            // Once /models lists them, the API entry (fresher metadata) wins via
+            // discovery above and injection skips them — no duplicates.
+            const whitelistedMissing = WHITELISTED_MODELS.filter((m) => !apiModelIds.has(m.id));
+            if (whitelistedMissing.length > 0) {
+                logger.info("models.whitelist.injected", { injected: whitelistedMissing.map((m) => m.id) });
+            }
+            items = [...items, ...whitelistedMissing, ...discovered];
         }
+
+        // Background revalidation: keep the picker fresh without ever blocking
+        // it on the network. Only notifies when the metadata actually changed,
+        // so VS Code's re-query doesn't loop (a fresh cache skips revalidation).
+        void revalidateApiModelList(baseUrl, apiKey).then((changed) => {
+            if (changed) {
+                onModelsRefreshed?.();
+            }
+        });
     }
 
     // Build infos + register per-request configs

@@ -19,7 +19,9 @@ Two features only — nothing else:
    - Reasoning/thinking content (`reasoning_content`) shown in Copilot's thinking UI
    - Vision input (image_url) for vision-capable models
    - Tool calling passthrough
-   - Automatic model discovery from the `/models` endpoint (with a built-in fallback list)
+   - Automatic model discovery from the `/models` endpoint (with a built-in fallback list): prefetched at startup, instantly served from cache, and silently revalidated in the background (changes rebuild the picker automatically)
+   - Whitelisted models the `/models` endpoint omits but actually work (e.g. `DeepSeek-V4.1-Flash`) are injected automatically; once listed by the API, fresh metadata takes over
+   - Non-chat endpoints (OCR services) are filtered out of the model list
    - Token usage reported to Copilot's native token indicator
 2. **Multi-key rotation**
    - Configure any number of `rc-...` API keys; every request picks the next available key (rotation) or sticks to one key until it fails (sticky)
@@ -83,7 +85,9 @@ MIT. Architecture based on [tokenrhythm-copilot](https://github.com/luotianyiism
    - 思考内容（`reasoning_content`）显示在 Copilot 的思考 UI 里
    - 视觉模型支持图片输入（image_url）
    - 工具调用透传
-   - 自动从 `/models` 端点发现模型列表（带内置兜底清单）
+   - 自动从 `/models` 端点发现模型列表（带内置兜底清单）：启动时预热、打开选择器秒开缓存、后台静默刷新（清单变化自动重建选择器）
+   - 白名单特判：`/models` 未收录但实测可用的模型（如 `DeepSeek-V4.1-Flash`）自动注入；API 收录后由新鲜元数据接管
+   - 非聊天端点（OCR 服务等）自动过滤，不进入模型列表
    - token 用量上报到 Copilot 原生 token 指示器
 2. **多 Key 轮询**
    - 配置任意数量的 `rc-...` API Key；每次请求取下一个可用 Key（轮询模式），或固定用一个 Key 直到失效再切换（固定模式）

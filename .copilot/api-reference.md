@@ -28,15 +28,15 @@
 
 | 端点 | 方法 | 用途 |
 |------|------|------|
-| `/models` | `GET` | 模型列表（**需鉴权**；响应为**裸 JSON 数组**，无 `{"object":"list","data":[...]}` 包装） |
+| `/models` | `GET` | 模型列表（**需鉴权**；2026-09-14 实测响应为 `{"data":[...]}` 包装，≤2026-09-06 曾为裸 JSON 数组——解析需兼容两种形态） |
 | `/chat/completions` | `POST` | OpenAI 兼容对话（SSE 流式） |
 
 ---
 
-## 4. `/models` 响应结构（实测 2026-09-06）
+## 4. `/models` 响应结构（实测 2026-09-14：响应为 `{"data":[...]}` 包装；≤2026-09-06 曾为裸数组）
 
 ```jsonc
-[
+{ "data": [
   {
     "id": "DeepSeek-V4-Flash-Vision-Exp",
     "name": "DeepSeek-V4-Flash-Vision-Exp",
@@ -61,21 +61,23 @@
     "supported_parameters": ["temperature", "max_tokens", "top_p", "stream", "response_format", "tools", "tool_choice"],
     "stability": "experimental"
   }
-]
+] }
 ```
 
-插件解析要点（`src/apiModelList.ts`）：`vision` = `input_modalities` 含 `image` 或 `providers[0].vision`；`tools` = `supported_parameters` 含 `tools` 或 `providers[0].tools`；`reasoning` = `providers[0].reasoning`。
+插件解析要点（`src/apiModelList.ts`）：`vision` = `input_modalities` 含 `image` 或 `providers[0].vision`；`tools` = `supported_parameters` 含 `tools` 或 `providers[0].tools`；`reasoning` = `providers[0].reasoning`。非聊天端点直接跳过：`output_modalities` 不含 `text` 或 `context_length <= 0`（如 OCR 服务）不进入模型列表。
 
-### 实测模型清单（4 个，全部 `stability: experimental`）
+### 实测模型清单（2026-09-14：6 个，全部 `stability: experimental`）
 
-| 模型 | context_length | vision | tools | reasoning |
-|------|---------------|--------|-------|-----------|
-| `DeepSeek-V4-Flash-Vision-Exp` | 1,048,576 | ✅ | ✅ | ✅ |
-| `DeepSeek-V4-Flash` | 1,048,576 | ❌ | ✅ | ✅ |
-| `Qwen3.8-Flash-Next` | 262,144 | ✅ | ✅ | ✅ |
-| `MiniCPM5-1B` | 131,072 | ❌ | ✅ | ✅ |
+| 模型 | context_length | vision | tools | reasoning | 备注 |
+|------|---------------|--------|-------|-----------|------|
+| `DeepSeek-V4-Flash` | 1,048,576 | ❌ | ✅ | ✅ | 已开始计费（prompt 1.4e-7 / completion 2.8e-7） |
+| `DeepSeek-V4-Flash-Vision-Exp` | 1,048,576 | ✅ | ✅ | ✅ | |
+| `Qwen3.8-Flash-Next` | 262,144 | ✅ | ✅ | ✅ | |
+| `MiniCPM5-2B` | 131,072 | ❌ | ✅ | ✅ | `MiniCPM5-1B` 已下架 |
+| `Qwen3.8-27B` | 131,072 | ❌ | ✅ | ✅ | `free: true`，pricing 全 0 |
+| `MinerU2.5-Pro` | 0 | ❌ | ❌ | ❌ | OCR 专用（`streaming: false`、无 tools），插件过滤不显示 |
 
-全部由 sglang/vllm-router 动态路由（"Dynamic router service managed by Model Ops"），模型清单可能随平台调整——插件以内置清单兜底 + `/models` 自动发现。
+全部由 sglang/vllm-router 动态路由（"Dynamic router service managed by Model Ops"），模型清单可能随平台调整——插件以内置清单兜底 + `/models` 自动发现。响应新增字段：`aliases` / `pricing` / `free` / `output`（暂未消费）。
 
 ---
 
@@ -99,7 +101,25 @@
 
 插件解析（`src/utils.ts` `extractApiErrorMessage`）按 `error.message` → `detail`(字符串) → `detail.error.message` → `message` 顺序提取，兜底截断原文前 500 字符。
 
-**限流特征**：错误码 `process_concurrency_rate_limit_exceeded`（进程并发限制）——免费端点多用户共享，**429 属常态**，这正是多 key 轮询的必要性；插件已把 429 归为瞬态错误（冷却 + 整轮重试）。
+**限流特征**：错误码 `process_concurrency_rate_limit_exceeded`（进程并发限制）——免费端点多用户共享，**429 属常态**，这正是多 key 轮询的必要性；插件已把 429 归为瞬态错误（冷却 + 整轮重试）。另有模型级限流：`model_concurrency_rate_limit_exceeded`，报错文本含该模型并发上限（如 "at its concurrency limit (48)"），表示该模型机房并发打满（2026-09-14 DeepSeek-V4-Flash 实测）。
+
+---
+
+## 6.5 门户内部接口侦察（2026-09-14，底栏负载指示器调研结论）
+
+TokenFactory 门户页（/radeon/tokenfactory）展示每模型 **Live capacity**（Idle/Busy/At capacity + 百分比），数据源为门户内部接口：
+
+| 端点 | 返回 | 备注 |
+|------|------|------|
+| `/radeon/api/tokenfactory/load` | `{"models":{"<API模型ID>":{"state":"full\|busy\|idle","label":"At capacity\|Busy\|Idle","utilization":100.0}},"scope":"fleet"}` | key 即 /v1 的模型 ID，无鉴权字段 |
+| `/radeon/api/tokenfactory/model?id=model_gateway%3A<名>` | 模型完整详情（display_config/pricing/access 等） | |
+
+**❌ 插件内纯调用不可行**：该路径有 **TLS 客户端指纹级 WAF**——浏览器同源 fetch 200 秒回；curl/Node(undici) 带 Chrome 全套请求头（UA/Origin/Referer/Sec-Fetch-*/sec-ch-ua，h1.1）仍全部超时。对照同域 `/v1/models` 裸 curl 0.36s 200——WAF 仅针对门户路径，公开 API 不受影响。负载指示器方案放弃；如需负载信号只能从实际请求的 `model_concurrency_rate_limit_exceeded` 429 被动推断。
+
+**门户与 /models 清单不同步**（同日实测）：门户"Public Free"区 7 个模型，`/models` 只返回 6 个。差异：
+- `DeepSeek-V4.1-Flash`：门户在列（ctx 1M、vision/tools/reasoning 全支持、enabled=true），**实际可调用**（实测 200/2.6s）但 `/models` 不返回——门户先行上架、清单接口滞后。**已加白名单特判**（`src/provideModel.ts` `WHITELISTED_MODELS`）：仅在 `/models` 未返回时注入选择器；将来 `/models` 收录后由 API 元数据接管，白名单自动让位
+- 门户卡片 `DeepSeek-V4-Flash-0731` 的**后台模型 ID 就是 `DeepSeek-V4-Flash`**（门户展示名 ≠ API ID）
+- 门户 "Dedicated Model APIs" 区（MiniCPM-v46 等）为专用部署实例，与共享端点无关
 
 ---
 

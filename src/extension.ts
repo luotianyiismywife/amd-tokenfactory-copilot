@@ -17,8 +17,9 @@ import {
     updateKeyAvailability,
     type ApiKeyEntry,
 } from "./keyManager";
-import { clearApiModelCache } from "./apiModelList";
+import { clearApiModelCache, revalidateApiModelList } from "./apiModelList";
 import { clearModelConfigs } from "./provideModel";
+import { getPrimaryApiKey } from "./keyManager";
 
 /** 格式化剩余冷却时间（如 "4m32s"） */
 function formatRemainingSec(sec: number): string {
@@ -39,6 +40,15 @@ export function activate(context: vscode.ExtensionContext) {
     // Register the AMD TokenFactory provider under the vendor id used in package.json
     vscode.lm.registerLanguageModelChatProvider("amdtokenfactory", provider);
 
+    // 清空模型缓存并让 VS Code 重新查询 provider 重建模型清单。
+    // key 从无到有（或删除最后一个 key）会改变 /models 自动发现的前提条件，
+    // 因此 key 增删后必须调用，否则模型选择器停留在内置兜底清单。
+    const refreshModelList = (): void => {
+        clearApiModelCache();
+        clearModelConfigs();
+        provider.notifyModelListChanged();
+    };
+
     // Refresh the model list when relevant settings change
     context.subscriptions.push(
         vscode.workspace.onDidChangeConfiguration((e) => {
@@ -58,12 +68,31 @@ export function activate(context: vscode.ExtensionContext) {
         })
     );
 
+    // 启动预热：激活后立即后台拉取一次 /models（有 key 时），让首次打开模型
+    // 选择器直接命中缓存、零网络等待；平台上下架模型也会在会话开始前同步。
+    // 清单有实际变化时通知 VS Code 重建（无变化不打扰）。失败静默降级为内置清单。
+    void (async () => {
+        try {
+            const baseUrl = vscode.workspace.getConfiguration("amdTokenFactory").get<string>(
+                "baseUrl",
+                "https://developer.amd.com.cn/radeon/api/v1"
+            );
+            const primaryKey = await getPrimaryApiKey(context.secrets);
+            const changed = await revalidateApiModelList(baseUrl, primaryKey?.value);
+            if (changed) {
+                provider.notifyModelListChanged();
+            }
+        } catch (err) {
+            logger.warn("startup.modelPrefetch.failed", {
+                error: err instanceof Error ? err.message : String(err),
+            });
+        }
+    })();
+
     // Register the refreshModels command: clear caches and re-query the model list
     context.subscriptions.push(
         vscode.commands.registerCommand("amdtokenfactory.refreshModels", async () => {
-            clearApiModelCache();
-            clearModelConfigs();
-            provider.notifyModelListChanged();
+            refreshModelList();
             vscode.window.showInformationMessage(l10n("Model list refreshed"));
         })
     );
@@ -273,6 +302,7 @@ export function activate(context: vscode.ExtensionContext) {
                     if (confirm === l10n("Delete")) {
                         await removeApiKey(secrets, entry.value);
                         vscode.window.showInformationMessage(l10n("Key deleted."));
+                        refreshModelList();
                     }
                     break;
                 }
@@ -380,6 +410,7 @@ export function activate(context: vscode.ExtensionContext) {
                     const added = await addApiKey(secrets, { value: keyValue.trim(), label: label?.trim() || undefined, available: null });
                     if (added) {
                         vscode.window.showInformationMessage(l10n("API key saved."));
+                        refreshModelList();
                     } else {
                         vscode.window.showWarningMessage(l10n("Key already exists"));
                     }
@@ -405,6 +436,9 @@ export function activate(context: vscode.ExtensionContext) {
                     }
                     const { added, skipped } = await addApiKeys(secrets, entries);
                     vscode.window.showInformationMessage(l10nFormat("Imported {0} key(s), skipped {1} duplicate(s).", String(added), String(skipped)));
+                    if (added > 0) {
+                        refreshModelList();
+                    }
                     break;
                 }
                 case "edit": {
@@ -427,6 +461,7 @@ export function activate(context: vscode.ExtensionContext) {
                     if (confirm === l10n("Delete")) {
                         await removeApiKey(secrets, keyPick.entry.value);
                         vscode.window.showInformationMessage(l10n("Key deleted."));
+                        refreshModelList();
                     }
                     break;
                 }
