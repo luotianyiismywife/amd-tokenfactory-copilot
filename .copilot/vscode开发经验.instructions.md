@@ -39,8 +39,14 @@ description: "Use when: 需要操作浏览器（市场上传/审核、GitHub Rel
 
 > ✅ **已验证：市场登录页点「使用 GitHub 登录」可免密登录**——Microsoft 登录页（`login.microsoftonline.com`，URL 带 `githubsi=true`）有「使用 GitHub 登录」按钮。**注意**：① `githubsi=true` 参数**不会**自动跳 GitHub 授权，必须**手动点击**该按钮；② 该按钮是 JS 事件绑定，**`click_element` 会超时/失败，必须用 `run_playwright_code` + `page.evaluate(() => btn.click())` 强制触发**；③ **该按钮不是 `<button>` 元素，而是 Knockout 绑定的 `div[role=button][aria-label="使用 GitHub 登录"]`**——`querySelectorAll('button')` 找不到它（会误报 not found），必须用 `document.querySelector('div[aria-label="使用 GitHub 登录"]')` 精准选择（2026-09-06 v1.1.0 发布实测）。完整流程：JS 点击按钮 → 跳 `github.com/login/oauth/authorize`（GitHub 已登录则自动回跳）→ `login.live.com/HandleGithubResponse.srf` → 「保持登录状态?」确认页 → 点「是」→ 进入市场管理页。GitHub 与市场登录态在同一浏览器会话内**共享**；但**新开浏览器页/新会话仍要求重新登录**。
 
-> ⚠️ **教训**：市场上传的 reCAPTCHA 验证**必须能访问 google.com**。中国大陆网络下内置浏览器会报"无法连接到 reCAPTCHA 服务"（被 CSP `connect-src` 拦截 + `ERR_ABORTED`/`ERR_BLOCKED_BY_ORB`），**刷新无效**。此时应**改用外部浏览器（Chrome/Edge，配代理插件）手动上传**，或开代理后重试内置浏览器。
-
+> ⚠️ **教训**：市场上传的 reCAPTCHA 验证在**内置浏览器中无法完成**（2026-09-14 v1.2.0 深度排查定论）。直接改用**外部浏览器（Chrome/Edge，配代理插件）手动上传**。
+>
+> **根因（对照实验定论，修正早前"网络层+CSP 双层阻断"的误判）**：
+> - ❌ 网络层**不是**问题：内置浏览器**顶层导航** google.com 成功（api.js、anchor 页面均加载出真实内容）；curl/Node 显式走代理也通。Chromium 代理解析完全正常——配 `http.proxy` 也没用。
+> - ❌ 市场 CSP 只拦 `connect-src`（不含 google.com，杀掉 recaptcha 脚本内部的 fetch `api2/clr`）；但 `frame-src` 是 `*` 通配，**不拦 iframe**。
+> - ✅ **真正病灶：内置浏览器对跨站 iframe 嵌入静默挂起**。决定性对照（在无 CSP 的 example.com 上注入 iframe）：google recaptcha anchor 与 microsoft.com 均"无 load 事件、无网络错误"地挂死；而 bing/github 的 iframe 是响应到达后被对方 `X-Frame-Options`/`frame-ancestors` 拒绝（反证网络通）。这是 Electron 会话层的第三方 iframe 策略。
+> - reCAPTCHA 验证必须跑在跨站 iframe 里 → 当前引擎无解。文件选择不受影响（`setInputFiles('#file-upload')` 正常、Upload 按钮可用），卡的只是验证环节。
+> - **版本相关性（重要）**：此行为**随 VS Code 更新而变**——09-06（v1.1.0 发布日）reCAPTCHA iframe 在内置浏览器里正常弹出并完成验证；09-10 VS Code 自动更新到 1.137.0（Electron/Chromium 更换）；09-14 起同流程 iframe 全部静默挂死。**每次 VS Code 升级后值得重测一次**：若新引擎恢复了 iframe，可回到内置浏览器流程；上传前先在 example.com 上注入一个 google iframe 测 30 秒能否 load 即可判定。
 > ⚠️ **关键教训**：vsix 打包必须**包含 dependencies**！用 `npx vsce package`（**不要加 `--no-dependencies`**），否则插件装不上 node_modules，用户激活直接崩溃（报"命令未找到"）。本扩展当前无运行时 dependencies（纯 VS Code API），但仍保持默认打包行为。打包后务必 `npx vsce ls` 确认 `out/` 齐全。
 
 ### 1.3 GitHub Release 创建流程
