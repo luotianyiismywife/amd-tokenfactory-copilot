@@ -23,7 +23,7 @@
 	"bugs": {
 		"url": "https://github.com/luotianyiismywife/amd-tokenfactory-copilot/issues"
 	},
-	"version": "1.2.0",
+	"version": "1.2.1",
 	"engines": {
 		"vscode": "^1.116.0"
 	},
@@ -133,9 +133,15 @@
 				},
 				"amdTokenFactory.exhaustedCooldownMin": {
 					"type": "number",
-					"default": 5,
+					"default": 120,
 					"minimum": 0,
 					"description": "%config.exhaustedCooldownMin.desc%"
+				},
+				"amdTokenFactory.otherErrorCooldownMin": {
+					"type": "number",
+					"default": 2,
+					"minimum": 0,
+					"description": "%config.otherErrorCooldownMin.desc%"
 				},
 				"amdTokenFactory.transientRetryTimes": {
 					"type": "number",

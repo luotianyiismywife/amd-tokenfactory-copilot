@@ -7,7 +7,6 @@ const zhCN: Record<string, string> = {
     "Ready": "就绪",
 
     // extension.ts - API key prompts
-    "AMD TokenFactory Provider API Key": "AMD TokenFactory 提供商 API 密钥",
     "Enter your AMD TokenFactory API key (rc-...)": "输入您的 AMD TokenFactory API 密钥（rc-...）",
     "API key saved.": "API 密钥已保存。",
     "API keys cleared.": "API 密钥已清空。",
@@ -57,8 +56,6 @@ const zhCN: Record<string, string> = {
 
     // provider.ts
     "AMD TokenFactory API key not found": "未找到 AMD TokenFactory API 密钥",
-    "Open AMD TokenFactory to get an API key?": "是否打开 AMD TokenFactory 页面获取 API Key？",
-    "Open Website": "打开官网",
     "Invalid base URL configuration.": "无效的 Base URL 配置。",
     "All API keys failed:": "全部 API Key 均失败：",
     "Request timed out. The generation took too long. You can increase the timeout in settings (amdTokenFactory.requestTimeout).":
@@ -66,9 +63,8 @@ const zhCN: Record<string, string> = {
     "The connection was closed by the server. The generation took too long. Please try again or request shorter content.":
         "服务端关闭了连接，生成耗时过长。请重试或缩短请求内容。",
 
-    // key rotation reasons
+    // key rotation reasons（"401" 等状态码原因不经 l10n，原样展示）
     "Balance insufficient": "余额不足",
-    "Key invalid": "Key 无效",
     "Rate limited (429)": "限流（429）",
     "Server error (503)": "服务器错误（503）",
     "API error": "API 错误",

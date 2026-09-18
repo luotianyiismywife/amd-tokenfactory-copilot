@@ -34,16 +34,15 @@ import {
     markApiKeyExhausted,
     markApiKeyAvailable,
     resetExhaustedKeys,
-    addApiKey,
     maskApiKey,
     type ApiKeyEntry,
 } from "./keyManager";
 
 /**
  * Human-readable labels for key rotation failure reasons (keys are l10n keys).
+ * "401" 等状态码原因不在此表：l10n 回退原样展示状态码本身。
  */
 export const REASON_TEXT: Record<string, string> = {
-    invalid: "Key invalid",
     rate_limited: "Rate limited (429)",
     server_error: "Server error (503)",
     api_error: "API error",
@@ -298,14 +297,8 @@ export class AmdChatModelProvider implements LanguageModelChatProvider {
         const firstEntry = await this.ensureApiKey();
         if (!firstEntry) {
             logger.warn("apiKey.missing", {});
-            const openWebsite = l10n("Open Website");
-            const picked = await vscode.window.showErrorMessage(
-                l10n("AMD TokenFactory API key not found"),
-                openWebsite
-            );
-            if (picked === openWebsite) {
-                vscode.commands.executeCommand("amdtokenfactory.getApiKey");
-            }
+            // 无 key 不再弹任何窗（输入框/错误框）：直接内联报错，
+            // 与 TokenRhythm 新版行为一致；添加 key 走管理命令。
             throw new Error(l10n("AMD TokenFactory API key not found"));
         }
         const totalKeys = (await getApiKeyStore(this.secrets)).keys.length;
@@ -521,30 +514,13 @@ export class AmdChatModelProvider implements LanguageModelChatProvider {
     }
 
     /**
-     * Ensure at least one API key exists. When no key is configured, prompts the
-     * user to enter one (saved into the multi-key store). Returns the first key
-     * entry if any exists, undefined otherwise.
+     * Ensure at least one API key exists. Returns the first key entry if any
+     * exists, undefined otherwise. Never prompts: no-key is surfaced as an
+     * inline chat error instead of popping an input box.
      */
     private async ensureApiKey(): Promise<ApiKeyEntry | undefined> {
         const store = await getApiKeyStore(this.secrets);
-        if (store.keys.length > 0) {
-            return store.keys[0];
-        }
-
-        const entered = await vscode.window.showInputBox({
-            title: l10n("AMD TokenFactory Provider API Key"),
-            prompt: l10n("Enter your AMD TokenFactory API key (rc-...)"),
-            ignoreFocusOut: true,
-            password: true,
-        });
-        if (entered && entered.trim()) {
-            const added = await addApiKey(this.secrets, { value: entered.trim(), available: null });
-            if (added) {
-                const updated = await getApiKeyStore(this.secrets);
-                return updated.keys[0];
-            }
-        }
-        return undefined;
+        return store.keys.length > 0 ? store.keys[0] : undefined;
     }
 }
 

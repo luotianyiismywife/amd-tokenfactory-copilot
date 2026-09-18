@@ -18,6 +18,8 @@ const EXTENSION_LABEL = "AMD TokenFactory";
 const DEFAULT_CONTEXT_LENGTH = 128000;
 const DEFAULT_MAX_TOKENS = 32768;
 // ── 内置默认模型清单（兜底，零配置可用）──
+// 与 2026-09-18 /models 实测对齐：Qwen3.8-27B 已下架；GLM-5.3-Flash 新上架
+// （门户 LLM(Text) 无 vision；context_length 未知 → 缺省落 128k，宁小勿大）。
 const BUILT_IN_MODELS: AmdModelItem[] = [
     {
         id: "DeepSeek-V4-Flash-Vision-Exp",
@@ -53,9 +55,8 @@ const BUILT_IN_MODELS: AmdModelItem[] = [
         reasoning: true,
     },
     {
-        id: "Qwen3.8-27B",
-        displayName: "Qwen 3.8 27B",
-        context_length: 131072,
+        id: "GLM-5.3-Flash",
+        displayName: "GLM 5.3 Flash",
         vision: false,
         tools: true,
         reasoning: true,
@@ -63,11 +64,9 @@ const BUILT_IN_MODELS: AmdModelItem[] = [
 ];
 
 // ── 白名单模型（/models 未收录但实测可调用的模型）──
-// 门户先行上架、清单接口滞后：DeepSeek-V4.1-Flash 在门户 "Public Free" 区在列
-// （ctx 1M、vision/tools/reasoning 全支持），实测 /chat/completions 200，
-// 但 /models 端点不返回它（2026-09-14 实测，见 .copilot/api-reference.md §6.5）。
-// 注入规则：仅当 /models 未返回该模型时注入；将来 /models 收录后由 API
-// 元数据（更新鲜）通过自动发现接管，白名单自动让位不产生重复。
+// 2026-09-18 起 /models 已正式收录 DeepSeek-V4.1-Flash（门户 "Public Free" 区在列，
+// ctx 1M、vision/tools/reasoning 全支持），自动发现接管元数据，本清单仅剩兜底职责：
+// fetch 失败时仍能显示该模型。注入规则不变：仅当 /models 未返回该模型时注入。
 const WHITELISTED_MODELS: AmdModelItem[] = [
     {
         id: "DeepSeek-V4.1-Flash",
@@ -258,7 +257,9 @@ export async function prepareLanguageModelChatInformation(
     const enableAutoDiscovery = vscode.workspace.getConfiguration("amdTokenFactory").get<boolean>("enableAutoModelDiscovery", true);
     if (enableAutoDiscovery) {
         // Use the primary key — any valid key works for /models.
-        const primaryKey = await getPrimaryApiKey(_secrets);
+        // ignoreTransient: 429 冷却中的 key 依然能查模型列表（不消耗聊天额度），
+        // 否则日额度型限流会把 picker 打回内置兑底清单。
+        const primaryKey = await getPrimaryApiKey(_secrets, { ignoreTransient: true });
         const apiKey = primaryKey?.value;
         const apiModelIds = await getApiModelIds(baseUrl, apiKey);
 

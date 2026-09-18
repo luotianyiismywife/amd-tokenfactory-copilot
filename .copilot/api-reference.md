@@ -66,18 +66,23 @@
 
 插件解析要点（`src/apiModelList.ts`）：`vision` = `input_modalities` 含 `image` 或 `providers[0].vision`；`tools` = `supported_parameters` 含 `tools` 或 `providers[0].tools`；`reasoning` = `providers[0].reasoning`。非聊天端点直接跳过：`output_modalities` 不含 `text` 或 `context_length <= 0`（如 OCR 服务）不进入模型列表。
 
-### 实测模型清单（2026-09-14：6 个，全部 `stability: experimental`）
+### 实测模型清单（2026-09-18：`/models` 返回 6 个，全部 `stability: experimental`）
 
 | 模型 | context_length | vision | tools | reasoning | 备注 |
 |------|---------------|--------|-------|-----------|------|
 | `DeepSeek-V4-Flash` | 1,048,576 | ❌ | ✅ | ✅ | 已开始计费（prompt 1.4e-7 / completion 2.8e-7） |
 | `DeepSeek-V4-Flash-Vision-Exp` | 1,048,576 | ✅ | ✅ | ✅ | |
+| `DeepSeek-V4.1-Flash` | 1,048,576 | ✅ | ✅ | ✅ | 2026-09-18 起被 `/models` 收录（此前仅门户在列，靠白名单注入） |
+| `GLM-5.3-Flash` | — | ❌ | ✅ | ✅ | 2026-09-18 新上架（Z.ai，门户 LLM(Text)） |
 | `Qwen3.8-Flash-Next` | 262,144 | ✅ | ✅ | ✅ | |
 | `MiniCPM5-2B` | 131,072 | ❌ | ✅ | ✅ | `MiniCPM5-1B` 已下架 |
-| `Qwen3.8-27B` | 131,072 | ❌ | ✅ | ✅ | `free: true`，pricing 全 0 |
 | `MinerU2.5-Pro` | 0 | ❌ | ❌ | ❌ | OCR 专用（`streaming: false`、无 tools），插件过滤不显示 |
 
+变更记录：`Qwen3.8-27B` 于 2026-09-18 前从 `/models` 下架（门户 Public Free 区亦不再显示）。门户另挂 `DeepSeek-V4-Flash-0731`（Public Free 区）但 `/models` 不返回它；Dedicated Model APIs 区（MiniCPM5-2B/MiniCPM-v46/MiniCPM5-1B 专用实例）与免费公共端点无关。
+
 全部由 sglang/vllm-router 动态路由（"Dynamic router service managed by Model Ops"），模型清单可能随平台调整——插件以内置清单兜底 + `/models` 自动发现。响应新增字段：`aliases` / `pricing` / `free` / `output`（暂未消费）。
+
+> ⚠️ `/models` **必须携带有效 Bearer key**（无 key / 假 key 均 401）。key 被插件标记为持久化不可用（`available=false`）时，`getPrimaryApiKey()` 返回空 → `/models` 完全不再尝试 → picker 落到内置兜底清单。排查"模型列表不对"先看扩展日志有无 `apiModelList.fetched`：没有即 key 侧问题（`key.allUnavailable`），去密钥管理里重新检测。
 
 ---
 

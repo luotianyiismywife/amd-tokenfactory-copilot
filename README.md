@@ -48,7 +48,8 @@ Sign in at <https://developer.amd.com.cn/radeon/tokenfactory> and create an API 
 | `amdTokenFactory.apiKeyRotationStatusCodes` | `[401,429,500,502,503,504]` | HTTP status codes that trigger switching to the next key |
 | `amdTokenFactory.apiKeyRotationErrorPatterns` | rate limit / concurrency / invalid bearer token … | Error text patterns that trigger switching to the next key |
 | `amdTokenFactory.transientRetryStatusCodes` | `[429,500,502,503,504]` | Status codes treated as transient (cooldown + whole-round retry) |
-| `amdTokenFactory.exhaustedCooldownMin` | `5` | Cooldown minutes for transiently failed keys |
+| `amdTokenFactory.exhaustedCooldownMin` | `120` | Cooldown minutes for 429 rate-limited keys (daily-quota style) |
+| `amdTokenFactory.otherErrorCooldownMin` | `2` | Cooldown minutes for other transient errors (5xx / unknown); 401 marks unavailable with no cooldown |
 | `amdTokenFactory.transientRetryTimes` | `3` | Whole-round automatic retries when all keys are cooling down |
 | `amdTokenFactory.requestTimeout` | `300000` | Request timeout (ms) |
 | `amdTokenFactory.enableAutoModelDiscovery` | `true` | Discover the model list from `/models` |

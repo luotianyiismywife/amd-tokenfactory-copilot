@@ -24,6 +24,8 @@ export interface ApiKeyEntry {
     available?: boolean | null;
     /** 最近一次检测时间戳（ms） */
     lastCheckedAt?: number;
+    /** 持久化不可用原因（如 "401"），供 UI 与报错信息直接展示 */
+    unavailableReason?: string;
 }
 
 /** 完整 store（SecretStorage JSON 结构） */
@@ -87,10 +89,16 @@ export function getTransientRetryStatusCodes(): number[] {
     return Array.isArray(codes) ? codes : [429, 500, 502, 503, 504];
 }
 
-/** 读取 429 瞬态冷却时长（分钟，默认 5） */
+/** 读取 429 限流的瞬态冷却时长（分钟，默认 120 = 2 小时；日额度型限流冷却过短会白打请求） */
 export function getExhaustedCooldownMin(): number {
-    const v = getConfig().get<number>("exhaustedCooldownMin", 5);
-    return Number.isFinite(v) && v >= 0 ? v : 5;
+    const v = getConfig().get<number>("exhaustedCooldownMin", 120);
+    return Number.isFinite(v) && v >= 0 ? v : 120;
+}
+
+/** 读取其他瞬态错误（5xx / 未知轮换错误）的冷却时长（分钟，默认 2） */
+export function getOtherErrorCooldownMin(): number {
+    const v = getConfig().get<number>("otherErrorCooldownMin", 2);
+    return Number.isFinite(v) && v >= 0 ? v : 2;
 }
 
 /** 读取瞬态失败整轮自动重试次数（默认 3，夹取 0-10） */
@@ -128,6 +136,7 @@ export async function getApiKeyStore(secrets: vscode.SecretStorage): Promise<Api
                             label: k.label,
                             available: k.available ?? null,
                             lastCheckedAt: k.lastCheckedAt,
+                            unavailableReason: k.unavailableReason,
                         })),
                 };
             }
@@ -175,7 +184,9 @@ export function getTransientExhaustedInfo(keyValue: string): { reason: string; r
     if (!entry) {
         return undefined;
     }
-    const cooldownMs = getExhaustedCooldownMin() * 60_000;
+    // 冷却时长按原因分级：429 限流 2h（日额度型），其他瞬态（5xx/未知）2min
+    const cooldownMin = entry.reason === "rate_limited" ? getExhaustedCooldownMin() : getOtherErrorCooldownMin();
+    const cooldownMs = cooldownMin * 60_000;
     if (cooldownMs <= 0) {
         // 冷却为 0：立即恢复
         transientExhausted.delete(keyValue);
@@ -189,9 +200,10 @@ export function getTransientExhaustedInfo(keyValue: string): { reason: string; r
     return { reason: entry.reason, remainingSec: Math.ceil(remainingMs / 1000) };
 }
 
-/** 判断 entry 是否可被选中（非冷却中、非持久化不可用） */
+/** 判断 entry 是否可被选中（非瞬态冷却中、非持久化不可用） */
 export function isApiKeyEligible(entry: ApiKeyEntry): boolean {
     if (entry.available === false) {
+        // 持久化不可用（401）无冷却期：保持不可用，直到手动重检/重置
         return false;
     }
     return getTransientExhaustedInfo(entry.value) === undefined;
@@ -249,10 +261,23 @@ export function isTransientRetryError(err: unknown): boolean {
 // ---------------------------------------------------------------------------
 
 /**
+ * getPrimaryApiKey 选项。
+ * ignoreTransient: 忽略瞬态冷却（429/5xx/api_error 冷却中的 key 仍可选）。
+ * 供 /models 拉取等非聊天场景使用：模型列表不消耗聊天额度，429 冷却
+ * 不应阻断清单刷新（拉取失败也只会静默降级，无害）。
+ */
+export interface PrimaryKeyOptions {
+    ignoreTransient?: boolean;
+}
+
+/**
  * 获取主 key（模型列表 / 检测可用性等"任意有效 key 即可"的场景）。
  * 从游标环形扫描第一个可用 key。全部不可用时返回 undefined。
  */
-export async function getPrimaryApiKey(secrets: vscode.SecretStorage): Promise<ApiKeyEntry | undefined> {
+export async function getPrimaryApiKey(
+    secrets: vscode.SecretStorage,
+    options?: PrimaryKeyOptions
+): Promise<ApiKeyEntry | undefined> {
     const store = await getApiKeyStore(secrets);
     if (store.keys.length === 0) {
         return undefined;
@@ -260,7 +285,11 @@ export async function getPrimaryApiKey(secrets: vscode.SecretStorage): Promise<A
 
     for (let i = 0; i < store.keys.length; i++) {
         const entry = store.keys[(rotationIndex + i) % store.keys.length];
-        if (isApiKeyEligible(entry)) {
+        // ignoreTransient：忽略瞬态冷却（429/5xx 冷却中的 key 仍可选）；401 持久化不可用仍排除
+        const eligible = options?.ignoreTransient
+            ? entry.available !== false
+            : isApiKeyEligible(entry);
+        if (eligible) {
             return entry;
         }
     }
@@ -306,10 +335,13 @@ export async function pickNextApiKey(
 /**
  * 瞬态失效原因：仅做内存冷却，不持久化 available=false。
  * （429 限流 / 5xx 服务端繁忙等"可能很快恢复"的错误——持久化会导致 key 在本会话永久不可用）
+ * api_error（未知轮换错误，如日额度耗尽）也按瞬态处理：平台存在日额度型限制
+ * （额度耗尽次日重置），错误码未知，持久化会导致 key 跨天仍被标记不可用、
+ * 额度重置后也不自愈；冷却到期自动重试，重置后自然恢复。
  */
-const TRANSIENT_REASONS = new Set(["rate_limited", "server_error"]);
+const TRANSIENT_REASONS = new Set(["rate_limited", "server_error", "api_error"]);
 
-/** 是否为瞬态失效原因（429 限流 / 5xx 服务端繁忙） */
+/** 是否为瞬态失效原因（429 限流 / 5xx 服务端繁忙 / 未知轮换错误） */
 export function isTransientExhaustedReason(reason: string): boolean {
     return TRANSIENT_REASONS.has(reason);
 }
@@ -317,7 +349,7 @@ export function isTransientExhaustedReason(reason: string): boolean {
 /**
  * 从轮换错误中提取失效原因。
  * 基于状态码与错误文本（比 patterns 匹配更精确）：
- * - 401 / invalid bearer token → "invalid"
+ * - 401 / invalid bearer token → "401"（直接以状态码为原因标识，UI/报错原样展示）
  * - 429 / rate limit / concurrency → "rate_limited"
  * - 5xx → "server_error"
  * - 其他（文本 patterns 命中的轮换错误）→ "api_error"
@@ -325,7 +357,7 @@ export function isTransientExhaustedReason(reason: string): boolean {
 export function getKeyRotationReason(err: unknown): string {
     const message = (err instanceof Error ? err.message : String(err)).toLowerCase();
     if (message.includes("[401]") || message.includes("status 401") || message.includes("invalid bearer token") || message.includes("invalid api key")) {
-        return "invalid";
+        return "401";
     }
     if (message.includes("[429]") || message.includes("status 429") || message.includes("rate limit") || message.includes("rate_limit") || message.includes("concurrency")) {
         return "rate_limited";
@@ -339,7 +371,7 @@ export function getKeyRotationReason(err: unknown): string {
 /**
  * 获取 key 当前不可用的机器可读原因（供"全部 key 不可用"报错展示）：
  * - 瞬态冷却中（429/5xx）→ "rate_limited" / "server_error"
- * - 持久化不可用（available=false）→ "unavailable"
+ * - 持久化不可用（available=false）→ 记录的原因（如 "401"）或通用 "unavailable"
  * - 其他 → "unknown"
  */
 export function getKeyUnavailableReason(entry: ApiKeyEntry): string {
@@ -348,15 +380,23 @@ export function getKeyUnavailableReason(entry: ApiKeyEntry): string {
         return transient.reason;
     }
     if (entry.available === false) {
-        return "unavailable";
+        // 有记录的原因（如 "401"）直接返回原样展示；无则退回通用"不可用"
+        return entry.unavailableReason ?? "unavailable";
     }
     return "unknown";
 }
 
+/** 从错误文本提取 HTTP 状态码（"[401]" / "status 401" 形式），无则 undefined */
+export function extractStatusCode(text: string): string | undefined {
+    const m = /\[(\d{3})\]/.exec(text) ?? /status (\d{3})/i.exec(text);
+    return m?.[1];
+}
+
 /**
  * 标记 key 为不可用。
- * - 瞬态原因（rate_limited/server_error）→ 仅记录内存冷却，不持久化 available=false
- * - 确定性原因（invalid/api_error）→ 持久化 available=false
+ * - 瞬态原因（rate_limited/server_error/api_error）→ 仅记录内存冷却
+ *   （429 冷却 exhaustedCooldownMin=2h，其他 otherErrorCooldownMin=2min），不持久化
+ * - 确定性原因（"401"）→ 持久化 available=false + 原因，无冷却期（直到手动重检/重置）
  */
 export async function markApiKeyExhausted(secrets: vscode.SecretStorage, keyValue: string, reason: string): Promise<void> {
     if (TRANSIENT_REASONS.has(reason)) {
@@ -370,6 +410,8 @@ export async function markApiKeyExhausted(secrets: vscode.SecretStorage, keyValu
         return;
     }
     entry.available = false;
+    // 原因若为状态码（如 "401"）则记录供直接展示；非状态码原因清除旧标记
+    entry.unavailableReason = /^\d{3}$/.test(reason) ? reason : undefined;
     entry.lastCheckedAt = Date.now();
     await saveApiKeyStore(secrets, store);
 }
@@ -383,15 +425,17 @@ export async function markApiKeyAvailable(secrets: vscode.SecretStorage, keyValu
     }
     entry.available = true;
     entry.lastCheckedAt = Date.now();
+    entry.unavailableReason = undefined;
     transientExhausted.delete(keyValue);
     await saveApiKeyStore(secrets, store);
 }
 
-/** 通用可用性更新 */
+/** 通用可用性更新；标记不可用时可附错误文本（自动提取状态码作为原因展示） */
 export async function updateKeyAvailability(
     secrets: vscode.SecretStorage,
     keyValue: string,
-    available: boolean | null
+    available: boolean | null,
+    reasonText?: string
 ): Promise<void> {
     const store = await getApiKeyStore(secrets);
     const entry = store.keys.find((k) => k.value === keyValue);
@@ -400,7 +444,10 @@ export async function updateKeyAvailability(
     }
     entry.available = available;
     entry.lastCheckedAt = Date.now();
-    if (available !== false) {
+    if (available === false) {
+        entry.unavailableReason = reasonText ? extractStatusCode(reasonText) : undefined;
+    } else {
+        entry.unavailableReason = undefined;
         transientExhausted.delete(keyValue);
     }
     await saveApiKeyStore(secrets, store);
@@ -416,6 +463,7 @@ export async function resetExhaustedKeys(secrets: vscode.SecretStorage, resetPer
             if (entry.available === false) {
                 entry.available = null;
                 entry.lastCheckedAt = undefined;
+                entry.unavailableReason = undefined;
                 changed = true;
             }
         }

@@ -31,6 +31,13 @@ function formatRemainingSec(sec: number): string {
     return `${sec}s`;
 }
 
+/** 格式化"不可用"状态文本：附原因（如 401）。401 无冷却期，保持不可用直到手动重检/重置 */
+function formatUnavailableStatus(entry: ApiKeyEntry): string {
+    return entry.unavailableReason
+        ? `${l10n("unavailable")} (${entry.unavailableReason})`
+        : l10n("unavailable");
+}
+
 export function activate(context: vscode.ExtensionContext) {
     // Initialize logger
     logger.init();
@@ -77,7 +84,7 @@ export function activate(context: vscode.ExtensionContext) {
                 "baseUrl",
                 "https://developer.amd.com.cn/radeon/api/v1"
             );
-            const primaryKey = await getPrimaryApiKey(context.secrets);
+            const primaryKey = await getPrimaryApiKey(context.secrets, { ignoreTransient: true });
             const changed = await revalidateApiModelList(baseUrl, primaryKey?.value);
             if (changed) {
                 provider.notifyModelListChanged();
@@ -182,7 +189,7 @@ export function activate(context: vscode.ExtensionContext) {
                     if (status === "available") {
                         detailParts.push("$(check) " + l10n("available"));
                     } else if (status === "unavailable") {
-                        detailParts.push("$(error) " + l10n("unavailable"));
+                        detailParts.push("$(error) " + formatUnavailableStatus(entry));
                     } else if (status === "cooldown") {
                         const transient = getTransientExhaustedInfo(entry.value);
                         detailParts.push(`$(clock) ${l10n("cooling down")}${transient ? " " + formatRemainingSec(transient.remainingSec) : ""}`);
@@ -260,7 +267,7 @@ export function activate(context: vscode.ExtensionContext) {
                         await updateKeyAvailability(secrets, entry.value, true);
                         vscode.window.showInformationMessage(l10n("Key is available"));
                     } else if (result.ok === false) {
-                        await updateKeyAvailability(secrets, entry.value, false);
+                        await updateKeyAvailability(secrets, entry.value, false, result.reason);
                         vscode.window.showErrorMessage(l10nFormat("Key is NOT available: {0}", result.reason ?? ""));
                     } else {
                         vscode.window.showWarningMessage(l10n("Key availability unknown"));
@@ -331,7 +338,7 @@ export function activate(context: vscode.ExtensionContext) {
                         statusText = l10n("available");
                     } else if (status === "unavailable") {
                         statusIcon = "$(error)";
-                        statusText = l10n("unavailable");
+                        statusText = formatUnavailableStatus(entry);
                     } else if (status === "cooldown") {
                         statusIcon = "$(clock)";
                         const transient = getTransientExhaustedInfo(entry.value);
