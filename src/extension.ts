@@ -3,6 +3,7 @@ import { AmdChatModelProvider } from "./provider";
 import { logger } from "./logger";
 import { l10n, l10nFormat } from "./localize";
 import {
+    API_KEYS_SECRET_KEY,
     addApiKey,
     addApiKeys,
     getApiKeyMode,
@@ -10,6 +11,7 @@ import {
     getKeyDisplayStatus,
     getRotationCursorIndex,
     getTransientExhaustedInfo,
+    invalidateApiKeyStoreCache,
     maskApiKey,
     removeApiKey,
     resetExhaustedKeys,
@@ -56,9 +58,43 @@ export function activate(context: vscode.ExtensionContext) {
         provider.notifyModelListChanged();
     };
 
+    // ── API Key 跨机器同步（VS Code Settings Sync）──
+    // setKeysForSync 仅在用户全局开启 Settings Sync 时生效：开启后 key store
+    // 以加密形式随登录账户同步到其他机器；关闭设置项则从同步清单移除。
+    // 注意：setKeysForSync 属于 secretsSync 提案，部分 VS Code 版本未启用——
+    // 运行时探测，不可用则静默跳过（key 仍仅存本机，不影响其他功能）。
+    const applySecretSyncSetting = (): void => {
+        const enabled = vscode.workspace.getConfiguration("amdTokenFactory").get<boolean>("syncApiKeys", true);
+        const secrets = context.secrets as vscode.SecretStorage & {
+            setKeysForSync?: (keys: string[]) => Thenable<void>;
+        };
+        if (typeof secrets.setKeysForSync !== "function") {
+            logger.debug("secretSync.unavailable", {});
+            return;
+        }
+        void secrets.setKeysForSync(enabled ? [API_KEYS_SECRET_KEY] : []);
+    };
+    applySecretSyncSetting();
+
+    // Secret 变更（含其他机器同步到达的 key）：失效内存缓存并重建模型选择器，
+    // 无需重启即可用上同步来的 key。本机增删 key 也会触发本事件，
+    // 缓存失效只是多读一次 SecretStorage，无害。
+    context.subscriptions.push(
+        context.secrets.onDidChange((e) => {
+            if (e.key !== API_KEYS_SECRET_KEY) {
+                return;
+            }
+            invalidateApiKeyStoreCache();
+            refreshModelList();
+        })
+    );
+
     // Refresh the model list when relevant settings change
     context.subscriptions.push(
         vscode.workspace.onDidChangeConfiguration((e) => {
+            if (e.affectsConfiguration("amdTokenFactory.syncApiKeys")) {
+                applySecretSyncSetting();
+            }
             const requestRebuild =
                 e.affectsConfiguration("amdTokenFactory.baseUrl")
                 || e.affectsConfiguration("amdTokenFactory.enableAutoModelDiscovery")

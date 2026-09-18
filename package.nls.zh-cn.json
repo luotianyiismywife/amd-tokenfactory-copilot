@@ -8,6 +8,7 @@
 	"config.title": "AMD TokenFactory 提供商",
 	"config.baseUrl.desc": "AMD TokenFactory OpenAI 兼容 API 的 Base URL。",
 	"config.apiKeyMode.desc": "配置多个 API Key 时的使用模式。",
+	"config.syncApiKeys.desc": "通过 VS Code 设置同步（Settings Sync）在多台机器间同步 API Key。仅在用户开启设置同步时生效；Key 以加密形式存放在登录账户的同步存储中。关闭后 Key store 将移出同步。",
 	"config.apiKeyMode.enum.rotation.desc": "轮询（rotation）：每次请求换下一个可用 Key（默认）。",
 	"config.apiKeyMode.enum.sticky.desc": "固定（sticky）：一直使用当前 Key，失效后才切换到下一个。",
 	"config.apiKeyRotationStatusCodes.desc": "触发切换下一个 API Key 的 HTTP 状态码列表。",

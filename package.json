@@ -23,7 +23,7 @@
 	"bugs": {
 		"url": "https://github.com/luotianyiismywife/amd-tokenfactory-copilot/issues"
 	},
-	"version": "1.2.1",
+	"version": "1.3.0",
 	"engines": {
 		"vscode": "^1.116.0"
 	},
@@ -85,6 +85,11 @@
 						"%config.apiKeyMode.enum.sticky.desc%"
 					],
 					"description": "%config.apiKeyMode.desc%"
+				},
+				"amdTokenFactory.syncApiKeys": {
+					"type": "boolean",
+					"default": true,
+					"description": "%config.syncApiKeys.desc%"
 				},
 				"amdTokenFactory.apiKeyRotationStatusCodes": {
 					"type": "array",

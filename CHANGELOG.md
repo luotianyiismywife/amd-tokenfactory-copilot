@@ -2,6 +2,12 @@
 
 本文件记录 amd-tokenfactory-copilot 的用户可感知变更。格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/),版本号遵循语义化版本(新功能升 y,修 bug/调整升 z)。
 
+## [1.3.0] - 2026-09-18
+
+### 新增
+
+- **API Key 跨机器同步**:新增 `amdTokenFactory.syncApiKeys` 设置(默认开启),通过 VS Code 设置同步(Settings Sync)把 key store 随登录账户同步到其他机器;同步到达时自动刷新内存缓存与模型选择器,无需重启。关闭设置项即把 key store 移出同步。仅在用户全局开启 Settings Sync 时生效,Key 以加密形式存放
+
 ## [1.2.1] - 2026-09-18
 
 ### 修复

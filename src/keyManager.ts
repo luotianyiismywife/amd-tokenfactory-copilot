@@ -33,7 +33,8 @@ export interface ApiKeyStore {
     keys: ApiKeyEntry[];
 }
 
-const STORE_KEY = "amdTokenFactory.apiKeys";
+/** SecretStorage 键名（key store JSON）。导出供 extension.ts 注册 Settings Sync。 */
+export const API_KEYS_SECRET_KEY = "amdTokenFactory.apiKeys";
 
 /** 内存缓存：避免每次读取都访问 SecretStorage */
 let storeCache: ApiKeyStore | null = null;
@@ -123,7 +124,7 @@ export async function getApiKeyStore(secrets: vscode.SecretStorage): Promise<Api
     }
 
     let store: ApiKeyStore = { keys: [] };
-    const raw = await secrets.get(STORE_KEY);
+    const raw = await secrets.get(API_KEYS_SECRET_KEY);
     if (raw) {
         try {
             const parsed = JSON.parse(raw) as Partial<ApiKeyStore>;
@@ -153,7 +154,7 @@ export async function getApiKeyStore(secrets: vscode.SecretStorage): Promise<Api
  * 保存 API Key store 到 SecretStorage。
  */
 export async function saveApiKeyStore(secrets: vscode.SecretStorage, store: ApiKeyStore): Promise<void> {
-    await secrets.store(STORE_KEY, JSON.stringify(store));
+    await secrets.store(API_KEYS_SECRET_KEY, JSON.stringify(store));
     storeCache = store;
 }
 

@@ -45,6 +45,7 @@ Sign in at <https://developer.amd.com.cn/radeon/tokenfactory> and create an API 
 |---|---|---|
 | `amdTokenFactory.baseUrl` | `https://developer.amd.com.cn/radeon/api/v1` | API base URL |
 | `amdTokenFactory.apiKeyMode` | `rotation` | `rotation` (next key per request) or `sticky` (keep current key until it fails) |
+| `amdTokenFactory.syncApiKeys` | `true` | Sync the API key store via VS Code Settings Sync (only effective when Settings Sync is on) |
 | `amdTokenFactory.apiKeyRotationStatusCodes` | `[401,429,500,502,503,504]` | HTTP status codes that trigger switching to the next key |
 | `amdTokenFactory.apiKeyRotationErrorPatterns` | rate limit / concurrency / invalid bearer token … | Error text patterns that trigger switching to the next key |
 | `amdTokenFactory.transientRetryStatusCodes` | `[429,500,502,503,504]` | Status codes treated as transient (cooldown + whole-round retry) |

@@ -8,6 +8,7 @@
 	"config.title": "AMD TokenFactory Provider",
 	"config.baseUrl.desc": "AMD TokenFactory OpenAI-compatible API base URL.",
 	"config.apiKeyMode.desc": "API key usage mode when multiple keys are configured.",
+	"config.syncApiKeys.desc": "Sync the API key store across machines via VS Code Settings Sync. Only takes effect when Settings Sync is turned on; keys are stored encrypted in your signed-in account's sync storage. Turn off to remove the key store from sync.",
 	"config.apiKeyMode.enum.rotation.desc": "Rotation: pick the next available key for every request (default).",
 	"config.apiKeyMode.enum.sticky.desc": "Sticky: keep using the current key until it fails, then switch to the next one.",
 	"config.apiKeyRotationStatusCodes.desc": "HTTP status codes that trigger switching to the next API key.",
