@@ -49,6 +49,8 @@ description: "Use when: 需要操作浏览器（市场上传/审核、GitHub Rel
 > - **版本相关性（重要）**：此行为**随 VS Code 更新而变**——09-06（v1.1.0 发布日）reCAPTCHA iframe 在内置浏览器里正常弹出并完成验证；09-10 VS Code 自动更新到 1.137.0（Electron/Chromium 更换）；09-14 起同流程 iframe 全部静默挂死。**每次 VS Code 升级后值得重测一次**：若新引擎恢复了 iframe，可回到内置浏览器流程；上传前先在 example.com 上注入一个 google iframe 测 30 秒能否 load 即可判定。
 >
 > ✅ **已验证：2026-09-18（v1.2.1 发布）内置浏览器上传流程恢复可用**——reCAPTCHA iframe 重新渲染（badge 显示"超出免费配额"提示），点 Upload 后走**无感验证**直接通过，无需人工交互。控制台会刷 `api2/clr` 被 CSP 拦截 + `reCAPTCHA Timeout (g)` 报错，但那只是遥测上报，**不影响验证与上传**（列表随即显示 `Verifying <新版本>`）。判定要点：Upload 后若对话框变为 "Uploading file ..." 且几十秒内列表出现 Verifying 即成功；若卡在验证挑战 iframe 无响应才是 09-14 式挂死。
+>
+> ⚠️ **补充（同日 v1.3.0 发布实测）：该流程不稳定，失败模式是"无法连接到 reCAPTCHA 服务"**——同一会话内 v1.2.1 无感验证通过，约 40 分钟后 v1.3.0 连续 4 次（含整页 reload 重开对话框）全部失败，reCAPTCHA `api2/anchor` 请求 `ERR_ABORTED`/`ERR_CONNECTION_CLOSED`。**根因是网络层而非会话层**：终端实测 `www.google.com/recaptcha/api2/anchor` 经代理 200、直连 000（连接被断），而内置浏览器会话**不走系统代理**（`HTTP_PROXY`/`HTTPS_PROXY` 环境变量对它无效，`http.proxy` 设置 09-14 已验证无效）——gstatic.com（脚本 CDN，国内有节点）能通所以脚本能加载，google.com 主站不通所以 anchor 拿不到。**结论：内置浏览器上传成功与否取决于当时 google.com 的直连可达性（波动），失败时直接切外部浏览器（Chrome/Edge 配代理插件）上传，不要反复重试浪费时间。**
 > ⚠️ **关键教训**：vsix 打包必须**包含 dependencies**！用 `npx vsce package`（**不要加 `--no-dependencies`**），否则插件装不上 node_modules，用户激活直接崩溃（报"命令未找到"）。本扩展当前无运行时 dependencies（纯 VS Code API），但仍保持默认打包行为。打包后务必 `npx vsce ls` 确认 `out/` 齐全。
 
 ### 1.3 GitHub Release 创建流程
