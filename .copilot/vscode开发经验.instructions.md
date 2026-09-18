@@ -47,6 +47,8 @@ description: "Use when: 需要操作浏览器（市场上传/审核、GitHub Rel
 > - ✅ **真正病灶：内置浏览器对跨站 iframe 嵌入静默挂起**。决定性对照（在无 CSP 的 example.com 上注入 iframe）：google recaptcha anchor 与 microsoft.com 均"无 load 事件、无网络错误"地挂死；而 bing/github 的 iframe 是响应到达后被对方 `X-Frame-Options`/`frame-ancestors` 拒绝（反证网络通）。这是 Electron 会话层的第三方 iframe 策略。
 > - reCAPTCHA 验证必须跑在跨站 iframe 里 → 当前引擎无解。文件选择不受影响（`setInputFiles('#file-upload')` 正常、Upload 按钮可用），卡的只是验证环节。
 > - **版本相关性（重要）**：此行为**随 VS Code 更新而变**——09-06（v1.1.0 发布日）reCAPTCHA iframe 在内置浏览器里正常弹出并完成验证；09-10 VS Code 自动更新到 1.137.0（Electron/Chromium 更换）；09-14 起同流程 iframe 全部静默挂死。**每次 VS Code 升级后值得重测一次**：若新引擎恢复了 iframe，可回到内置浏览器流程；上传前先在 example.com 上注入一个 google iframe 测 30 秒能否 load 即可判定。
+>
+> ✅ **已验证：2026-09-18（v1.2.1 发布）内置浏览器上传流程恢复可用**——reCAPTCHA iframe 重新渲染（badge 显示"超出免费配额"提示），点 Upload 后走**无感验证**直接通过，无需人工交互。控制台会刷 `api2/clr` 被 CSP 拦截 + `reCAPTCHA Timeout (g)` 报错，但那只是遥测上报，**不影响验证与上传**（列表随即显示 `Verifying <新版本>`）。判定要点：Upload 后若对话框变为 "Uploading file ..." 且几十秒内列表出现 Verifying 即成功；若卡在验证挑战 iframe 无响应才是 09-14 式挂死。
 > ⚠️ **关键教训**：vsix 打包必须**包含 dependencies**！用 `npx vsce package`（**不要加 `--no-dependencies`**），否则插件装不上 node_modules，用户激活直接崩溃（报"命令未找到"）。本扩展当前无运行时 dependencies（纯 VS Code API），但仍保持默认打包行为。打包后务必 `npx vsce ls` 确认 `out/` 齐全。
 
 ### 1.3 GitHub Release 创建流程
