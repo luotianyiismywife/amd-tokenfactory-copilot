@@ -122,7 +122,7 @@ TokenFactory 门户页（/radeon/tokenfactory）展示每模型 **Live capacity*
 **❌ 插件内纯调用不可行**：该路径有 **TLS 客户端指纹级 WAF**——浏览器同源 fetch 200 秒回；curl/Node(undici) 带 Chrome 全套请求头（UA/Origin/Referer/Sec-Fetch-*/sec-ch-ua，h1.1）仍全部超时。对照同域 `/v1/models` 裸 curl 0.36s 200——WAF 仅针对门户路径，公开 API 不受影响。负载指示器方案放弃；如需负载信号只能从实际请求的 `model_concurrency_rate_limit_exceeded` 429 被动推断。
 
 **门户与 /models 清单不同步**（同日实测）：门户"Public Free"区 7 个模型，`/models` 只返回 6 个。差异：
-- `DeepSeek-V4.1-Flash`：门户在列（ctx 1M、vision/tools/reasoning 全支持、enabled=true），**实际可调用**（实测 200/2.6s）但 `/models` 不返回——门户先行上架、清单接口滞后。**已加白名单特判**（`src/provideModel.ts` `WHITELISTED_MODELS`）：仅在 `/models` 未返回时注入选择器；将来 `/models` 收录后由 API 元数据接管，白名单自动让位
+- `DeepSeek-V4.1-Flash`：门户在列（ctx 1M、vision/tools/reasoning 全支持、enabled=true），**实际可调用**（实测 200/2.6s）。2026-09-18 起 `/models` 已正式收录该模型；曾经的白名单特判（`src/provideModel.ts` `WHITELISTED_MODELS`）已于 1.3.1 移除，自动发现完全接管
 - 门户卡片 `DeepSeek-V4-Flash-0731` 的**后台模型 ID 就是 `DeepSeek-V4-Flash`**（门户展示名 ≠ API ID）
 - 门户 "Dedicated Model APIs" 区（MiniCPM-v46 等）为专用部署实例，与共享端点无关
 

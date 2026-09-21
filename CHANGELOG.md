@@ -2,6 +2,12 @@
 
 本文件记录 amd-tokenfactory-copilot 的用户可感知变更。格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/),版本号遵循语义化版本(新功能升 y,修 bug/调整升 z)。
 
+## [1.3.1] - 2026-09-19
+
+### 移除
+
+- **移除 `DeepSeek-V4.1-Flash` 白名单特判**:`/models` 已正式收录该模型,自动发现完全接管元数据,白名单注入机制不再需要
+
 ## [1.3.0] - 2026-09-18
 
 ### 新增

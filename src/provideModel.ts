@@ -63,21 +63,6 @@ const BUILT_IN_MODELS: AmdModelItem[] = [
     },
 ];
 
-// ── 白名单模型（/models 未收录但实测可调用的模型）──
-// 2026-09-18 起 /models 已正式收录 DeepSeek-V4.1-Flash（门户 "Public Free" 区在列，
-// ctx 1M、vision/tools/reasoning 全支持），自动发现接管元数据，本清单仅剩兜底职责：
-// fetch 失败时仍能显示该模型。注入规则不变：仅当 /models 未返回该模型时注入。
-const WHITELISTED_MODELS: AmdModelItem[] = [
-    {
-        id: "DeepSeek-V4.1-Flash",
-        displayName: "DeepSeek V4.1 Flash",
-        context_length: 1048576,
-        vision: true,
-        tools: true,
-        reasoning: true,
-    },
-];
-
 // ── Module-level registry for API model configs ──
 // Key: model ID (API ID), Value: AmdModelItem
 const _apiModelConfigs = new Map<string, AmdModelItem>();
@@ -251,8 +236,8 @@ export async function prepareLanguageModelChatInformation(
     baseUrl: string,
     onModelsRefreshed?: () => void
 ): Promise<LanguageModelChatInformation[]> {
-    // Start with the built-in list (zero-config fallback) + whitelist models
-    let items: AmdModelItem[] = [...BUILT_IN_MODELS, ...WHITELISTED_MODELS];
+    // Start with the built-in list (zero-config fallback)
+    let items: AmdModelItem[] = [...BUILT_IN_MODELS];
 
     const enableAutoDiscovery = vscode.workspace.getConfiguration("amdTokenFactory").get<boolean>("enableAutoModelDiscovery", true);
     if (enableAutoDiscovery) {
@@ -290,14 +275,7 @@ export async function prepareLanguageModelChatInformation(
                 logger.info("models.discovery", { discovered: discovered.map((m) => m.id) });
             }
 
-            // Step 3: inject whitelist models the /models endpoint still omits.
-            // Once /models lists them, the API entry (fresher metadata) wins via
-            // discovery above and injection skips them — no duplicates.
-            const whitelistedMissing = WHITELISTED_MODELS.filter((m) => !apiModelIds.has(m.id));
-            if (whitelistedMissing.length > 0) {
-                logger.info("models.whitelist.injected", { injected: whitelistedMissing.map((m) => m.id) });
-            }
-            items = [...items, ...whitelistedMissing, ...discovered];
+            items = [...items, ...discovered];
         }
 
         // Background revalidation: keep the picker fresh without ever blocking
