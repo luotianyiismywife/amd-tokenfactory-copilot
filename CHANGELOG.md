@@ -2,6 +2,33 @@
 
 本文件记录 amd-tokenfactory-copilot 的用户可感知变更。格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/),版本号遵循语义化版本(新功能升 y,修 bug/调整升 z)。
 
+## [2.0.0] - 2026-10-21
+
+### 重构
+
+- **架构对齐 [any2copilot](https://github.com/luotianyiismywife/any2copilot) 脚手架**：`src/` 按职责重组为子目录（`api/` `provider/` `keys/` `models/` `commands/` `core/` `cloud/` `gitCommit/` `tokenizer/` `vision/` `platform/` `typings/`），协议适配器、key 轮换、分词器、视觉代理、云同步全部重写为脚手架实现。
+- **新增 Anthropic 协议支持**：除 OpenAI 兼容端点外，新增 `/v1/messages`（Anthropic）协议，可按模型切换或经 `amdTokenFactory.apiMode` 强制。AMD 不支持 OpenAI Responses 协议，故未移植。
+
+### 新增
+
+- **云同步（GitHub Gist）**：key/备注 二元组跨机器同步，使用 VS Code 内置 GitHub 登录（无需 PAT）。支持手动推送/拉取、启动自动拉取、可选去抖自动推送。
+- **思考档位选择**：模型选择器新增推理强度档位（禁用思考 / 低 / 中 / 高），映射到 `reasoning_effort`。
+- **`errorRules` 四元组配置**：错误分类规则（code + message + statusCode + action）集中一处配置，支持 `retrySameKey`（不换 key）/ `rotateCooldown`（冷却）/ `rotatePersist`（持久化不可用）三种处置。
+- **`single` key 模式**：仅使用当前 key，402 余额不足时可自动切换。
+- **图片代理多轮上限**：`amdTokenFactory.visionMaxRounds` 控制 `ask_image` 最大轮数。
+
+### 变更
+
+- **思考机制适配 AMD 平台**：AMD **不支持 `thinking` 参数**（400），思考深度改用 `reasoning_effort`（`none`/`low`/`medium`/`high`）；思考内容在 **`reasoning`** 字段（OpenAI）/ **`thinking` 块**（Anthropic），`reasoning_content` 恒为 `null`。思考是模型固有属性（Qwen3.8 恒思考、DeepSeek-V4 恒不思考）。
+- **模型清单更新**（2026-10-21 `/v1/models` 实测）：10 个 chat 模型，新增 `DeepSeek-V4.1-Flash` / `Gemma-4-31B-IT` / `MiMo-V2.6-Flash` / `MiniCPM-V-4.7-1B` / `MiniCPM-V-4.7-35B-A3B` / `Qwen3.8-27B`；移除退役的 `DeepSeek-V4-Flash-Vision-Exp`（2026-10-23 退役）。
+- **请求超时默认值提升至 10 分钟**（`requestTimeout` 600000ms）：AMD 首字延迟可能长达 2 分钟。
+- **批量导入格式简化为 `key---备注`**（原 `key---凭据---备注`）。
+
+### 移除
+
+- **余额 / 套餐用量模块**：AMD 每个账号每天固定 $1 额度（东八区 0 点刷新），余额无记录意义（平台用于多账号轮询）。移除 `balance/` 目录、状态栏用量显示、`checkUsage` 命令、`credential` 字段及相关设置（`showUsage` / `usageRefreshInterval` / `minBalanceCny` / `balanceCheckIntervalSec`）。
+- **OpenAI Responses 协议**：AMD 未实现 `/v1/responses`。
+
 ## [1.3.1] - 2026-09-19
 
 ### 移除

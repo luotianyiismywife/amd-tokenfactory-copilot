@@ -1,0 +1,36 @@
+# EditorConfig — https://editorconfig.org
+# 统一跨编辑器的缩进 / 换行 / 编码风格。
+# 注意：仓库通过 git core.autocrlf 存储 LF，检出时按平台转换。
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+# TypeScript / JavaScript / ESM 脚本
+[*.{ts,mjs,js,cjs}]
+indent_style = space
+indent_size = 4
+
+# JSON / JSONC（package.json 等使用 Tab 缩进）
+[*.{json,jsonc}]
+indent_style = tab
+indent_size = 4
+
+# YAML（CI 配置等）
+[*.{yml,yaml}]
+indent_style = space
+indent_size = 2
+
+# Markdown：保留行尾空格（用于换行）
+[*.md]
+trim_trailing_whitespace = false
+
+# 资源文件不做缩进处理
+[*.tiktoken]
+insert_final_newline = false
