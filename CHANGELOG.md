@@ -29,6 +29,10 @@
 - **余额 / 套餐用量模块**：AMD 每个账号每天固定 $1 额度（东八区 0 点刷新），余额无记录意义（平台用于多账号轮询）。移除 `balance/` 目录、状态栏用量显示、`checkUsage` 命令、`credential` 字段及相关设置（`showUsage` / `usageRefreshInterval` / `minBalanceCny` / `balanceCheckIntervalSec`）。
 - **OpenAI Responses 协议**：AMD 未实现 `/v1/responses`。
 
+### 修复
+
+- **重新打包：vsix 缺少 `@microsoft/tiktokenizer` 运行时依赖**：首个发布包的 `.vscodeignore` 误含 `node_modules/**`，导致分词器依赖未打入 vsix，扩展激活抛 `Cannot find module`、provider 未注册，全部模型报 `The selected model '...' is not available`（2026-10-21 发布后由用户反馈发现）。已移除该排除规则并重新打包，Release 附件已替换（tag 前移至 `167effb`）。
+
 ## [1.3.1] - 2026-09-19
 
 ### 移除
