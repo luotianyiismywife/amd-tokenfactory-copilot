@@ -119,7 +119,7 @@ export async function* iterateSseEvents(
                 try {
                     parsed = JSON.parse(data);
                 } catch (e) {
-                    console.error(`[Copilot Provider] Failed to parse ${tag} SSE chunk:`, e, "data:", data);
+                    console.error(`[AMD TokenFactory] Failed to parse ${tag} SSE chunk:`, e, "data:", data);
                     logger.error(`${tag}.stream.chunk.error`, {
                         modelId,
                         error: e instanceof Error ? e.message : String(e),
@@ -177,7 +177,7 @@ export async function consumeSseStream(
         }
         logger.debug(`${tag}.stream.done`, { modelId });
     } catch (e) {
-        console.error(`[Copilot Provider] ${tag} streaming error:`, e);
+        console.error(`[AMD TokenFactory] ${tag} streaming error:`, e);
         logger.error(`${tag}.stream.error`, {
             modelId,
             error: e instanceof Error ? e.message : String(e),

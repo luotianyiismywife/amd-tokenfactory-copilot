@@ -9,7 +9,7 @@ import {
     CancellationToken,
 } from "vscode";
 import { ProviderModelItem } from "../core/types";
-import { isImageMimeType, isToolResultPart, storeDataUriImages, parseToolCallArguments, splitToolCallArguments } from "../core/utils";
+import { isImageMimeType, isToolResultPart, storeDataUriImages, parseToolCallArguments, splitToolCallArguments, tryParseJSONObject } from "../core/utils";
 import { VersionManager } from "../core/versionManager";
 import type { InterceptedToolCall, StoredImage } from "../vision/types";
 import { ASK_IMAGE_TOOL_NAME, ASK_WITH_MULTI_IMAGE_TOOL_NAME } from "../vision/types";
@@ -211,12 +211,18 @@ export abstract class CommonApi<TMessage, TRequestBody> {
         if (buf.name === ASK_IMAGE_TOOL_NAME || buf.name === ASK_WITH_MULTI_IMAGE_TOOL_NAME) {
             return;
         }
-        const parsed = parseToolCallArguments(buf.args);
-        if (!parsed) {
+        // 严格解析：只有完整的、严格的 JSON 参数才在流式过程中提前发射。
+        // 用 tryParseJSONObject 而非 parseToolCallArguments —— 后者的宽容
+        // 解析对空串/未完成参数返回 `{}`（truthy），会把流式 tool_calls 的
+        // 第一个带 name 的空 arguments chunk（如 AMD 的 `arguments:""`）过早
+        // 发射成空参数工具调用并标 completed，导致后续 index 分片被 skip、
+        // 重开桶产出 `unknown_tool`。发射统一延迟到 finish 时 flushToolCallBuffers。
+        const canParse = tryParseJSONObject(buf.args);
+        if (!canParse.ok) {
             return;
         }
         const id = buf.id ?? `call_${Math.random().toString(36).slice(2, 10)}`;
-        let parameters = parsed;
+        let parameters = canParse.value;
         parameters = this.adjustReadFileParameters(buf.name, parameters);
         progress.report(new LanguageModelToolCallPart(id, buf.name, parameters));
         this._toolCallBuffers.delete(key);
@@ -276,7 +282,7 @@ export abstract class CommonApi<TMessage, TRequestBody> {
                     continue;
                 }
                 if (throwOnInvalid) {
-                    console.error("[Copilot Provider] Invalid JSON for tool call", {
+                    console.error("[AMD TokenFactory] Invalid JSON for tool call", {
                         idx,
                         snippet: (buf.args || "").slice(0, 200),
                     });
@@ -355,7 +361,7 @@ export abstract class CommonApi<TMessage, TRequestBody> {
             this.flushThinkingBuffer(progress);
             progress.report(new LanguageModelThinkingPart("", this._currentThinkingId) as unknown as LanguageModelResponsePart);
         } catch (e) {
-            console.error("[Copilot Provider] Failed to end thinking sequence:", e);
+            console.error("[AMD TokenFactory] Failed to end thinking sequence:", e);
         }
         this._currentThinkingId = null;
         this._thinkingBuffer = "";

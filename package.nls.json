@@ -1,7 +1,7 @@
 {
   "providerDisplayName": "AMD TokenFactory",
-  "commandCategory": "Copilot Provider",
-  "command.openSettings": "Open Settings",
+  "commandCategory": "AMD TokenFactory",
+  "command.openSettings": "Open Extension Settings",
   "command.generateCommit": "Generate Commit Message",
   "command.abortCommit": "Generate Commit Message - Stop",
   "config.title": "AMD TokenFactory",

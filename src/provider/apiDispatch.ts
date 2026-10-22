@@ -164,7 +164,7 @@ export async function executeApiRequest(params: ApiRequestParams): Promise<void>
 
             if (!res.ok) {
                 const errorText = await res.text();
-                console.error("[Copilot Provider] API error response", errorText);
+                console.error("[AMD TokenFactory] API error response", errorText);
                 // Detect content moderation rejection for images — skip retries, this won't recover
                 if (errorText.includes("image is sensitive")) {
                     throw new Error(`IMAGE_SENSITIVE: ${errorText}`);

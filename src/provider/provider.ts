@@ -158,7 +158,7 @@ export class ChatModelProvider implements LanguageModelChatProvider {
                     }
                     progress.report(part);
                 } catch (e) {
-                    console.error("[Copilot Provider] Progress.report failed", {
+                    console.error("[AMD TokenFactory] Progress.report failed", {
                         modelId: model.id,
                         error: e instanceof Error ? { name: e.name, message: e.message } : String(e),
                     });
@@ -348,7 +348,7 @@ export class ChatModelProvider implements LanguageModelChatProvider {
                 throw new Error(l10n("The image you sent was flagged as sensitive by the content moderation system. Please try a different image."), { cause: err });
             }
 
-            console.error("[Copilot Provider] Chat request failed", {
+            console.error("[AMD TokenFactory] Chat request failed", {
                 modelId: model.id,
                 messageCount: messages.length,
                 error: err instanceof Error ? { name: err.name, message: err.message } : String(err),
