@@ -193,7 +193,9 @@ Anthropic 模式:
   3. stream 分片拼接 args
   4. tryEmitBufferedToolCall() → **严格 tryParseJSONObject** 校验，仅完整 JSON 参数提前发射；
      空/未完成参数（`arguments:""` 首个 chunk）不发射，发射延迟到 finish 时 flush
-  5. flushToolCallBuffers() → finish_reason 时用宽容 parseToolCallArguments 强制发射剩余
+  5. flushToolCallBuffers() → finish_reason 时用宽容 parseToolCallArguments 强制发射剩余；
+     仍无法解析时先尝试 splitToolCallArguments 拆分（并行调用合并场景），
+     拆分也失败则**丢弃该 tool call 并记录日志**（不再抛错）
   6. adjustReadFileParameters() → 自动扩增 read_file 行数
   ask_image 拦截: 不在 tryEmit/flush 中发出，改为设置 interceptedToolCall
 ```
@@ -203,7 +205,14 @@ Anthropic 模式:
 > （truthy），会把 AMD 流式 tool_calls 首个带 name 的空 `arguments:""` chunk 过早发射成
 > 空参数工具调用并标 completed，后续 index 分片被 skip、重开桶产出 `unknown_tool`。
 > 与 senseaudio `2973b46` 一致（上游 any2copilot 未修，issue #1）。
-```
+
+> ⚠️ **Invalid JSON 整轮失败坑（2026-10-22 修复）**：`flushToolCallBuffers` 在
+> `throwOnInvalid=true`（OpenAI 流结束）时，若某 tool call 参数既无法被
+> `parseToolCallArguments` 解析、也无法被 `splitToolCallArguments` 拆分（单个截断/损坏
+> 的 JSON 对象），此前直接 `throw new Error("Invalid JSON for tool call")` 导致**整轮请求
+> 失败**。AMD 模型（如 Qwen3.8 系列）不规范的流式 tool_calls 参数易触发。现改为宽容处理：
+> 记录日志 + 丢弃该 tool call（删除 buffer + 标 completed），请求正常返回其余内容。
+> 上游 any2copilot 未修（同样存在此问题）。
 
 ### 2.6 图片代理（ask_image Tool）流程
 

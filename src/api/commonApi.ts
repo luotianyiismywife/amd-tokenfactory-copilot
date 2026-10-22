@@ -282,11 +282,17 @@ export abstract class CommonApi<TMessage, TRequestBody> {
                     continue;
                 }
                 if (throwOnInvalid) {
-                    console.error("[AMD TokenFactory] Invalid JSON for tool call", {
+                    // 宽容处理：工具调用参数在流结束时仍无法解析（截断/损坏）时，
+                    // 丢弃该 tool call 而不是让整个请求失败。记录日志便于排查。
+                    // 此前直接 throw 会让 AMD 模型（如 Qwen3.8 系列）不规范的
+                    // 流式 tool_calls 参数导致整轮请求报 "Invalid JSON for tool call"。
+                    console.error("[AMD TokenFactory] Dropping unparseable tool call", {
                         idx,
+                        name: buf.name,
                         snippet: (buf.args || "").slice(0, 200),
                     });
-                    throw new Error("Invalid JSON for tool call");
+                    this._toolCallBuffers.delete(idx);
+                    this._completedToolCallIndices.add(idx);
                 }
                 continue;
             }
