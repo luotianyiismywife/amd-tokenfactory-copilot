@@ -2,6 +2,14 @@
 
 本文件记录 amd-tokenfactory-copilot 的用户可感知变更。格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/),版本号遵循语义化版本(新功能升 y,修 bug/调整升 z)。
 
+## [2.0.1] - 2026-10-22
+
+### 修复
+
+- **流式工具调用被拆成两个**（v2.0.0 回归）：AMD 流式 `tool_calls` 首个带 `name` 的空 `arguments: ""` chunk 被宽容解析 `parseToolCallArguments` 当成 `{}` 过早发射（空参数工具调用），并标记 buffer 完成，导致后续仅带 `index` 的参数分片被跳过、重开桶产出 `unknown_tool`（名字与参数分离）。改用严格 `tryParseJSONObject` 校验，空/未完成参数不触发提前发射，统一延迟到 `finish_reason` 时解析，名字与参数正确合并为单个工具调用。
+- **命令面板分类与标题**：`commandCategory` 从脚手架遗留的 `Copilot Provider` 改为 `AMD TokenFactory`，`Open Settings` 改为 `Open Extension Settings`。
+- **内部日志前缀统一**：8 处 `[Copilot Provider]` 脚手架遗留标签改为 `[AMD TokenFactory]`。
+
 ## [2.0.0] - 2026-10-21
 
 ### 重构

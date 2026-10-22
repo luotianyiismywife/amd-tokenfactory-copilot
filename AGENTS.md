@@ -191,10 +191,18 @@ Anthropic 模式:
   1. _toolCallBuffers Map<key, {id, name, args}>（key = id / index / auto）
   2. _indexToId 把仅带 index 的 args 碎片解析回同 tool_call 的 id 桶
   3. stream 分片拼接 args
-  4. tryEmitBufferedToolCall() → 参数可解析 JSON 时立即发射
-  5. flushToolCallBuffers() → finish_reason 时强制发射剩余
+  4. tryEmitBufferedToolCall() → **严格 tryParseJSONObject** 校验，仅完整 JSON 参数提前发射；
+     空/未完成参数（`arguments:""` 首个 chunk）不发射，发射延迟到 finish 时 flush
+  5. flushToolCallBuffers() → finish_reason 时用宽容 parseToolCallArguments 强制发射剩余
   6. adjustReadFileParameters() → 自动扩增 read_file 行数
   ask_image 拦截: 不在 tryEmit/flush 中发出，改为设置 interceptedToolCall
+```
+
+> ⚠️ **空参数过早发射坑（2026-10-22 修复）**：`tryEmitBufferedToolCall` 必须用严格
+> `tryParseJSONObject`（而非宽容 `parseToolCallArguments`）。宽容解析对空串返回 `{}`
+> （truthy），会把 AMD 流式 tool_calls 首个带 name 的空 `arguments:""` chunk 过早发射成
+> 空参数工具调用并标 completed，后续 index 分片被 skip、重开桶产出 `unknown_tool`。
+> 与 senseaudio `2973b46` 一致（上游 any2copilot 未修，issue #1）。
 ```
 
 ### 2.6 图片代理（ask_image Tool）流程
