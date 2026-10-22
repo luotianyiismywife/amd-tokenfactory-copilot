@@ -1,7 +1,6 @@
 .vscode/**
 .copilot/**
 src/**
-node_modules/**
 scripts/**
 .gitignore
 tsconfig.json

@@ -268,7 +268,7 @@ src/
 │   ├── modelsDev.ts                      # models.dev 元数据拉取与查询
 │   ├── apiModelList.ts                   # API 模型列表获取（/v1/models）
 │   ├── visionModels.ts                   # 视觉能力判定
-│   ├── modelSync.ts                      # 启动模型同步（每日一次）
+│   ├── modelSync.ts                      # 启动模型同步（每日一次，一行日志）
 │   └── provideModel.ts                   # 模型信息提供函数（含自动发现）
 ├── commands/                             # 命令与 QuickPick UI
 │   ├── registerCommands.ts               # 全部命令注册 + 配置变更监听
@@ -308,49 +308,49 @@ docs/                                     # 设计文档
 
 ### 3.2 文件详细说明
 
-| 文件 | 职责 |
-|------|------|
-| `extension.ts` | 扩展激活/停用。**仅编排** |
-| `platform/platformConfig.ts` | ★ **平台配置单一事实来源**：API 根地址、兜底值 |
-| `api/commonApi.ts` | `CommonApi<TMessage,TRequestBody>` 抽象基类 |
-| `api/sse.ts` | 共享 SSE 流解析（`iterateSseEvents` / `consumeSseStream`） |
-| `api/httpClient.ts` | 共享 HTTP 请求样板（`postJson`） |
-| `api/openai/openaiApi.ts` | OpenAI 格式 API 实现 |
-| `api/anthropic/anthropicApi.ts` | Anthropic 格式 API 实现（含连续工具结果合并） |
-| `provider/provider.ts` | `ChatModelProvider`：VS Code 接口实现 + 请求编排 |
-| `provider/requestOptions.ts` | `applyReasoningEffort` / `applyTemperature` / `resolveApiMode` |
-| `provider/rotation.ts` | `runKeyRotationLoop()`：多 key 轮换循环 |
-| `provider/apiDispatch.ts` | `executeApiRequest()`：双协议分发、流式处理、零正文检测 |
-| `provider/visionRounds.ts` | `handleInterceptedToolCall()`：ask_image 图片代理多轮 |
-| `provider/errors.ts` | `VisionRoundError` / `TransientRetryExhaustedError` / `REASON_TEXT` / `buildAllKeysUnavailableDetail` / `tryTransientRetryRound` / `checkZeroAnswerBudgetExhausted` / `reportNativeUsage` / `getRequestedReasoningEffort` |
-| `keys/keyManager.ts` | barrel：统一导出 `keys/` 下全部 API |
-| `keys/store.ts` | SecretStorage 读写与旧版单 key 迁移、增删改 |
-| `keys/selection.ts` | `getPrimaryApiKey` / `pickNextApiKey` / `shouldSingleKeyFallbackSwitch` / `setActiveKeyByValue` |
-| `keys/health.ts` | 瞬态冷却、`matchErrorRule`、失效原因、状态更新 |
-| `keys/availability.ts` | `testKeyAvailability`（最小真实聊天请求） |
-| `models/models.ts` | 内置模型定义清单 + 模型配置查询 |
-| `models/apiModelList.ts` | API 模型列表获取（`/v1/models`），5 分钟缓存，静默降级 |
-| `models/visionModels.ts` | 视觉能力判定（API 标记 → models.dev → 硬编码兜底） |
-| `models/modelSync.ts` | 启动模型同步（每日一次，一行日志） |
-| `models/provideModel.ts` | 模型信息提供函数（含自动发现） |
-| `commands/registerCommands.ts` | 注册全部命令 + `onDidChangeConfiguration` 监听 |
-| `commands/apiKeyManagerUi.ts` | `showApiKeyManager()` 主入口 |
-| `commands/apiKeyDisplay.ts` | key 展示辅助（纯函数） |
-| `commands/apiKeyFlows.ts` | key 管理交互流程 |
-| `core/logger.ts` | 日志输出 (LogOutputChannel) |
-| `core/localize.ts` | 中英文国际化 |
-| `core/utils.ts` | 工具函数（重试、角色映射、工具转换、JSON 修复等） |
-| `cloud/cloudSync.ts` | 云同步（GitHub Gist） |
-| `cloud/syncPayload.ts` | 纯函数 `syncPayloadHasChanged` |
-| `gitCommit/commitMessageGenerator.ts` | Git 提交消息生成逻辑 |
-| `gitCommit/gitUtils.ts` | Git 命令封装 |
-| `tokenizer/tokenizerManager.ts` | o200k_base 分词器管理 (含 LRU 缓存) |
-| `tokenizer/provideToken.ts` | Token 用量计算 + `estimateInputTokens` |
-| `tokenizer/imageUtils.ts` | 图片尺寸解析 (PNG/GIF/JPEG/WebP) |
-| `vision/types.ts` | Vision proxy 类型定义 + 非视觉图片引用工厂 |
-| `vision/historyCodec.ts` | 跨轮视觉历史编解码 |
-| `vision/historyPart.ts` | 跨轮视觉历史 DataPart 创建/解析 |
-| `vision/imageProxy.ts` | 图片代理核心：调用视觉模型描述图片 |
+| 文件 | 聊天请求处理流程 | 备注 |
+|------|------|------|
+| `extension.ts` | 扩展激活/停用。**仅编排** | 仅编排 |
+| `platform/platformConfig.ts` | ★ **平台配置单一事实来源**：API 根地址、兜底值 | 仅配置 |
+| `api/commonApi.ts` | `CommonApi<TMessage,TRequestBody>` 抽象基类 | 通用 API |
+| `api/sse.ts` | 共享 SSE 流解析（`iterateSseEvents` / `consumeSseStream`） | 流式处理 |
+| `api/httpClient.ts` | 共享 HTTP 请求样板（`postJson`） | HTTP 请求 |
+| `api/openai/openaiApi.ts` | OpenAI 格式 API 实现 | OpenAI 兼容 |
+| `api/anthropic/anthropicApi.ts` | Anthropic 格式 API 实现（含连续工具结果合并） | Anthropic 兼容 |
+| `provider/provider.ts` | `ChatModelProvider`：VS Code 接口实现 + 请求编排 | 核心逻辑 |
+| `provider/requestOptions.ts` | `applyReasoningEffort` / `applyTemperature` / `resolveApiMode` | 推理强度 / temperature / apiMode 决策 |
+| `provider/rotation.ts` | `runKeyRotationLoop()`：多 key 轮换循环 | 多 key 轮换 |
+| `provider/apiDispatch.ts` | `executeApiRequest()`：双协议分发、流式处理、零正文检测 | 协议分发 |
+| `provider/visionRounds.ts` | `handleInterceptedToolCall()`：ask_image 图片代理多轮 | 图片代理 |
+| `provider/errors.ts` | `VisionRoundError` / `TransientRetryExhaustedError` / `REASON_TEXT` / `buildAllKeysUnavailableDetail` / `tryTransientRetryRound` / `checkZeroAnswerBudgetExhausted` / `reportNativeUsage` / `getRequestedReasoningEffort` | 错误处理 |
+| `keys/keyManager.ts` | barrel：统一导出 `keys/` 下全部 API | 多 key 管理 |
+| `keys/store.ts` | SecretStorage 读写与旧版单 key 迁移、增删改 | 多 key 存储 |
+| `keys/selection.ts` | `getPrimaryApiKey` / `pickNextApiKey` / `shouldSingleKeyFallbackSwitch` / `setActiveKeyByValue` | key 选择 |
+| `keys/health.ts` | 瞬态冷却、`matchErrorRule`、失效原因、状态更新 | key 健康 |
+| `keys/availability.ts` | `testKeyAvailability`（最小真实聊天请求） | key 可用性 |
+| `models/models.ts` | 内置模型定义清单 + 模型配置查询 | 模型定义 |
+| `models/apiModelList.ts` | API 模型列表获取（`/v1/models`），5 分钟缓存，静默降级 | 模型列表 |
+| `models/visionModels.ts` | 视觉能力判定（API 标记 → models.dev → 硬编码兜底） | 视觉能力 |
+| `models/modelSync.ts` | 启动模型同步（每日一次，一行日志） | 模型同步 |
+| `models/provideModel.ts` | 模型信息提供函数（含自动发现） | 模型信息 |
+| `commands/registerCommands.ts` | 注册全部命令 + `onDidChangeConfiguration` 监听 | 命令注册 |
+| `commands/apiKeyManagerUi.ts` | `showApiKeyManager()` 主入口 | key 管理 UI |
+| `commands/apiKeyDisplay.ts` | key 展示辅助（纯函数） | key 展示 |
+| `commands/apiKeyFlows.ts` | key 管理交互流程 | key 管理 |
+| `core/logger.ts` | 日志输出 (LogOutputChannel) | 日志系统 |
+| `core/localize.ts` | 中英文国际化 | 国际化 |
+| `core/utils.ts` | 工具函数（重试、角色映射、工具转换、JSON 修复等） | 工具函数 |
+| `cloud/cloudSync.ts` | 云同步（GitHub Gist） | 云同步 |
+| `cloud/syncPayload.ts` | 纯函数 `syncPayloadHasChanged` | 云同步对比 |
+| `gitCommit/commitMessageGenerator.ts` | Git 提交消息生成逻辑 | Git 提交 |
+| `gitCommit/gitUtils.ts` | Git 命令封装 | Git 工具 |
+| `tokenizer/tokenizerManager.ts` | o200k_base 分词器管理 (含 LRU 缓存) | 分词器 |
+| `tokenizer/provideToken.ts` | Token 用量计算 + `estimateInputTokens` | Token 计数 |
+| `tokenizer/imageUtils.ts` | 图片尺寸解析 (PNG/GIF/JPEG/WebP) | 图片尺寸 |
+| `vision/types.ts` | Vision proxy 类型定义 + 非视觉图片引用工厂 | Vision proxy |
+| `vision/historyCodec.ts` | 跨轮视觉历史编解码 | 跨轮历史 |
+| `vision/historyPart.ts` | 跨轮视觉历史 DataPart 创建/解析 | 跨轮历史 DataPart |
+| `vision/imageProxy.ts` | 图片代理核心：调用视觉模型描述图片 | 图片代理 |
 
 ---
 
@@ -548,6 +548,12 @@ npm run build
 | `eslint` / `typescript-eslint` / `@eslint/js` | 代码检查 |
 | `typescript` | TypeScript 编译器 |
 
+### 6.4 vsix 打包（vsce）
+
+- `npm run build` = 编译 + `npx @vscode/vsce package -o <name>-<version>.vsix`
+- **vsce 默认自动打包 `dependencies` 声明的运行时依赖 `node_modules`**（自动排除 devDependencies）。**严禁在 `.vscodeignore` 中写 `node_modules/**`** —— 会把运行时依赖（如 `@microsoft/tiktokenizer`）一并排除，导致扩展激活时抛 `Error: Cannot find module '@microsoft/tiktokenizer'` → provider 未注册 → **该 vendor 下所有模型不可用**（表象：`The selected model 'vendor/x' is not available`；真实根因在 `exthost.log` 的 activation failed，与模型/平台无关）。
+- 每次打包后必须核对 vsix 文件清单含 `extension/node_modules/@microsoft/tiktokenizer/dist/*.js`（构建输出的 file tree 或 `vsce ls --tree`）。
+
 ---
 
 ## 7. 开发规范
@@ -673,3 +679,9 @@ type 取值：`feat` | `fix` | `refactor` | `docs` | `chore` | `improve` 等。
 - `commit.start/end/error` — 提交消息生成
 - `openai.stream.*` / `anthropic.stream.*` — 流式处理
 - `apiKey.missing` — API Key 缺失
+
+### 7.13 **vsix 运行时依赖铁律**
+
+> **vsix 必须包含 `dependencies` 中声明的全部运行时依赖。打包后必须核对 vsix 文件清单含 `extension/node_modules/`。**
+>
+> 2026-10-22 教训（v2.0.0 首次发布即不可用）：`.vscodeignore` 含 `node_modules/**` → `@microsoft/tiktokenizer` 未打入 vsix → 激活抛 `Cannot find module` → provider 未注册 → 全部模型报 `The selected model '...' is not available`。排查此类报错**先看 `exthost.log` 的 activation 记录**，而非模型/平台侧。
