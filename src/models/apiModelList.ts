@@ -87,6 +87,23 @@ function normalizeModelEntry(raw: ApiModelEntry): ApiModelMetadata | undefined {
     const provider0 = raw.providers?.[0] ?? {};
     const supportedParams = raw.supported_parameters ?? [];
 
+    // Vision is TRI-STATE: true / false / undefined (no signal).
+    // `architecture.input_modalities` is an explicit declaration — an empty or
+    // text-only list means "no image input". `providers[].vision` is a per-provider
+    // flag; when the entry carries no providers at all we have NO signal, and must
+    // return undefined so `resolveVisionCapability` can fall through to models.dev.
+    // Collapsing "no signal" into `false` would silently mark every such model as
+    // text-only and disable the ask_image proxy for it.
+    //
+    // ⚠️ The provider signal must be a real BOOLEAN. A `providers` array that exists
+    // but omits `vision` (e.g. only `{ streaming: true }`) is still "no signal" —
+    // treating it as `false` would override models.dev with a guess.
+    const hasModalitySignal = inputModalities.length > 0;
+    const hasProviderVisionSignal = typeof provider0.vision === "boolean";
+    const supportsVision = hasModalitySignal || hasProviderVisionSignal
+        ? inputModalities.includes("image") || provider0.vision === true
+        : undefined;
+
     return {
         id,
         display_name: raw.name,
@@ -94,7 +111,7 @@ function normalizeModelEntry(raw: ApiModelEntry): ApiModelMetadata | undefined {
         // AMD TokenFactory supports the Anthropic Messages protocol platform-wide
         // (the /v1/models response carries no per-model protocol flag).
         supports_anthropic: true,
-        supports_vision: inputModalities.includes("image") || provider0.vision === true,
+        supports_vision: supportsVision,
         supports_tools: supportedParams.includes("tools") || provider0.tools === true,
         supports_reasoning: provider0.reasoning === true || supportedParams.includes("reasoning"),
         context_length: contextLength,
@@ -151,18 +168,6 @@ export async function getApiModelIds(apiKey: string | undefined): Promise<Set<st
 export async function getApiModelMetadataList(apiKey: string | undefined): Promise<ApiModelMetadata[]> {
     await ensureApiModelCache(apiKey);
     return cachedModelMetadata ?? [];
-}
-
-/**
- * Get the set of model IDs whose /v1/models entry reports supports_anthropic=true.
- * These models can use the Anthropic Messages API protocol (POST /v1/messages).
- *
- * @param apiKey - The API key for authentication.
- * @returns A set of model IDs supporting the Anthropic protocol.
- */
-export async function getAnthropicSupportedModelIds(apiKey: string | undefined): Promise<Set<string>> {
-    await ensureApiModelCache(apiKey);
-    return new Set((cachedModelMetadata ?? []).filter((m) => m.supports_anthropic === true).map((m) => m.id));
 }
 
 /**

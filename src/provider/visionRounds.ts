@@ -8,7 +8,7 @@ import type {
 } from "vscode";
 import type { ProviderModelItem } from "../core/types";
 import { convertToolsToOpenAI, createRetryConfig, executeWithRetry } from "../core/utils";
-import { l10nFormat } from "../core/localize";
+import { l10n, l10nFormat } from "../core/localize";
 import { logger } from "../core/logger";
 import type { CommonApi } from "../api/commonApi";
 import { callVisionModel, callVisionModelMulti } from "../vision/imageProxy";
@@ -20,7 +20,7 @@ import {
 } from "../vision/types";
 import { createVisionToolHistoryPart } from "../vision/historyPart";
 import type { VisionToolHistoryEntry } from "../vision/historyCodec";
-import { isVisionCapableModelId } from "../models/provideModel";
+import { bareModelId, getVisionModelInfos, isVisionCapableModelId } from "../models";
 import { VisionRoundError } from "./errors";
 
 /**
@@ -70,37 +70,59 @@ export async function handleInterceptedToolCall(params: VisionRoundParams): Prom
     }
 
     const config = vscode.workspace.getConfiguration();
-    const visionModelId = config.get<string>("amdTokenFactory.visionProxyModel", "Qwen3.8-27B");
+    const configuredVisionModelId = (config.get<string>("amdTokenFactory.visionProxyModel", "") ?? "").trim();
     // Clamp to [1, 20]: VS Code's schema minimum/maximum only warn in the UI —
     // a value set directly in settings.json (e.g. 0 or negative) would otherwise
     // silently drop every vision call (loop never runs).
     const rawMaxRounds = config.get<number>("amdTokenFactory.visionMaxRounds", 5);
     const maxRounds = Number.isFinite(rawMaxRounds) ? Math.min(20, Math.max(1, Math.floor(rawMaxRounds))) : 5;
 
-    // Guard against a misconfigured visionProxyModel. The main model is ALWAYS
-    // non-vision here (otherwise the image would have been sent directly), so
-    // pointing the proxy at the same model — or at any known non-vision model —
-    // would make the vision request trigger the ask_image proxy again → recursion.
-    const bareVisionId = visionModelId.includes("/")
-        ? visionModelId.substring(visionModelId.lastIndexOf("/") + 1)
-        : visionModelId;
-    const bareMainId = params.model.id.includes("/")
-        ? params.model.id.substring(params.model.id.lastIndexOf("/") + 1)
-        : params.model.id;
-    if (bareVisionId === bareMainId || isVisionCapableModelId(visionModelId) === false) {
-        logger.warn("vision.proxyModelNotVisionCapable", {
-            visionModelId,
+    // ── Resolve the vision model ──
+    // The explicit setting wins, but only when it is actually vision-capable and
+    // is not the main model: the main model is ALWAYS non-vision here (otherwise
+    // the image would have been sent directly), so pointing the proxy at it — or
+    // at any known non-vision model — would make the vision request trigger the
+    // ask_image proxy again → recursion.
+    //
+    // When the setting is empty, stale (model retired/renamed) or misconfigured,
+    // fall back to the platform's own capability data (`/v1/models` →
+    // models.dev → hardcoded), i.e. the same list the `Select Vision Proxy Model`
+    // command offers. That keeps the proxy working with zero configuration and
+    // makes the setting a pure override rather than a hard requirement.
+    const bareMainId = bareModelId(params.model.id);
+    const configuredUsable =
+        configuredVisionModelId.length > 0 &&
+        bareModelId(configuredVisionModelId) !== bareMainId &&
+        isVisionCapableModelId(configuredVisionModelId) !== false;
+
+    const visionModelId = configuredUsable
+        ? configuredVisionModelId
+        : getVisionModelInfos().find((candidate) => bareModelId(candidate.id) !== bareMainId)?.id;
+
+    if (!visionModelId) {
+        logger.warn("vision.noVisionModelAvailable", {
+            configured: configuredVisionModelId,
             mainModelId: params.model.id,
         });
         params.trackingProgress.report(
             new vscode.LanguageModelThinkingPart(
-                l10nFormat(
-                    "The configured vision model ({0}) does not support image input. Set amdTokenFactory.visionProxyModel to a vision-capable model.",
-                    visionModelId
-                )
+                configuredVisionModelId
+                    ? l10nFormat(
+                        "The configured vision model ({0}) does not support image input. Set amdTokenFactory.visionProxyModel to a vision-capable model.",
+                        configuredVisionModelId
+                    )
+                    : l10n("No vision-capable model is available. Configure amdTokenFactory.visionProxyModel or enable a vision model.")
             ) as unknown as LanguageModelResponsePart
         );
         return;
+    }
+
+    if (!configuredUsable) {
+        logger.info("vision.proxyModelAutoSelected", {
+            configured: configuredVisionModelId,
+            selected: visionModelId,
+            mainModelId: params.model.id,
+        });
     }
 
     // Accumulate messages across rounds

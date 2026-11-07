@@ -45,6 +45,17 @@ export interface ModelsDevEntry {
 let metadataMap: Map<string, ModelsDevEntry> | null = null;
 /** Map from short ID (last segment after slash) to entry. */
 let shortIdMap: Map<string, ModelsDevEntry> | null = null;
+/**
+ * Lowercased indexes.
+ *
+ * models.dev keys are all lowercase (`z-ai/glm-4.5`, `deepseek/deepseek-chat`),
+ * while platform model IDs are capitalized (`GLM-5.3-Flash`, `DeepSeek-V4-Flash`).
+ * Matching on the raw key alone therefore NEVER hits — the catalog would look
+ * like it has no data for any platform model. These indexes make the lookup
+ * case-insensitive.
+ */
+let lowerIdMap: Map<string, ModelsDevEntry> | null = null;
+let lowerShortIdMap: Map<string, ModelsDevEntry> | null = null;
 let cacheTimestamp = 0;
 /** Timestamp of the last fetch ATTEMPT (success or failure). Used to back off
  *  retries when the catalog is unreachable — without it every model list
@@ -69,14 +80,18 @@ async function fetchModelsDevCatalog(): Promise<Record<string, ModelsDevEntry>> 
 function rebuildIndex(data: Record<string, ModelsDevEntry>): void {
     metadataMap = new Map();
     shortIdMap = new Map();
+    lowerIdMap = new Map();
+    lowerShortIdMap = new Map();
 
     for (const [fullId, entry] of Object.entries(data)) {
         metadataMap.set(fullId, entry);
+        lowerIdMap.set(fullId.toLowerCase(), entry);
         // Also index by the short name (last segment after '/')
         const slashIdx = fullId.lastIndexOf("/");
         if (slashIdx >= 0) {
             const shortId = fullId.slice(slashIdx + 1);
             shortIdMap.set(shortId, entry);
+            lowerShortIdMap.set(shortId.toLowerCase(), entry);
         }
     }
 }
@@ -126,6 +141,8 @@ export async function ensureModelsDevLoaded(): Promise<void> {
         if (metadataMap === null) {
             metadataMap = new Map();
             shortIdMap = new Map();
+            lowerIdMap = new Map();
+            lowerShortIdMap = new Map();
         }
     }
 }
@@ -135,10 +152,18 @@ export async function ensureModelsDevLoaded(): Promise<void> {
  *
  * Matching strategy (in order):
  * 1. Exact match on the full models.dev ID
- * 2. Short ID match (last segment after '/')
- * 3. Direct match on the API ID itself
+ * 2. Exact match on the short ID (last segment after '/')
+ * 3. Case-insensitive match on either of the above
  *
- * @param apiModelId - The model ID as returned by the API (e.g. "deepseek-v4-flash")
+ * Case-insensitivity is required, not cosmetic: models.dev keys are lowercase
+ * (`z-ai/glm-4.5`) while platform IDs are capitalized (`GLM-5.3-Flash`).
+ *
+ * Deliberately NO fuzzy/suffix matching — a wrong hit is worse than a miss.
+ * Marking a text-only model as vision-capable makes the extension send images
+ * straight to it, which the platform rejects with a hard 400; a miss only routes
+ * the image through the ask_image proxy, which still works.
+ *
+ * @param apiModelId - The model ID as returned by the API (e.g. "GLM-5.3-Flash")
  * @returns The models.dev entry, or undefined if not found.
  */
 export function lookupModelDevEntry(apiModelId: string): ModelsDevEntry | undefined {
@@ -146,22 +171,18 @@ export function lookupModelDevEntry(apiModelId: string): ModelsDevEntry | undefi
         return undefined;
     }
 
-    // 1. Direct match on full ID
-    if (metadataMap.has(apiModelId)) {
-        return metadataMap.get(apiModelId);
+    const raw = apiModelId.trim();
+    if (!raw) {
+        return undefined;
     }
 
-    // 2. Short ID match
-    if (shortIdMap?.has(apiModelId)) {
-        return shortIdMap.get(apiModelId);
+    // 1/2. Exact match on the full ID, then on the short ID.
+    const exact = metadataMap.get(raw) ?? shortIdMap?.get(raw);
+    if (exact) {
+        return exact;
     }
 
-    // 3. Try suffix match: some API IDs might be prefix of the full path
-    for (const [fullId, entry] of metadataMap) {
-        if (fullId.endsWith(`/${apiModelId}`) || fullId === apiModelId) {
-            return entry;
-        }
-    }
-
-    return undefined;
+    // 3. Case-insensitive match (the common path for platform IDs).
+    const lower = raw.toLowerCase();
+    return lowerIdMap?.get(lower) ?? lowerShortIdMap?.get(lower);
 }

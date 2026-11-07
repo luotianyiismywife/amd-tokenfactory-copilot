@@ -26,7 +26,7 @@
 	"bugs": {
 		"url": "https://github.com/luotianyiismywife/amd-tokenfactory-copilot/issues"
 	},
-	"version": "2.0.1",
+	"version": "2.0.2",
 	"engines": {
 		"vscode": "^1.116.0"
 	},
@@ -68,6 +68,11 @@
 				"command": "amdtokenfactory.manageApiKeys",
 				"category": "%commandCategory%",
 				"title": "%command.manageApiKeys%"
+			},
+			{
+				"command": "amdtokenfactory.selectVisionProxyModel",
+				"category": "%commandCategory%",
+				"title": "%command.selectVisionProxyModel%"
 			},
 			{
 				"command": "amdtokenfactory.syncPush",
@@ -306,7 +311,7 @@
 				},
 				"amdTokenFactory.visionProxyModel": {
 					"type": "string",
-					"default": "Qwen3.8-27B",
+					"default": "",
 					"description": "%config.visionProxyModel.desc%"
 				},
 				"amdTokenFactory.visionProxyThinking": {

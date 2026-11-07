@@ -56,6 +56,14 @@ const zhCN: Record<string, string> = {
 	"The configured vision model ({0}) does not support image input. Set amdTokenFactory.visionProxyModel to a vision-capable model.": "配置的视觉模型（{0}）不支持图片输入。请将 amdTokenFactory.visionProxyModel 设为支持视觉的模型。",
 	"The image you sent was flagged as sensitive by the content moderation system. Please try a different image.": "您发送的图片被内容审核系统判定为敏感，请尝试更换图片。",
 
+	// visionProxyCommand.ts - vision proxy model picker
+	"Select Vision Proxy Model": "选择视觉代理模型",
+	"Vision model used by ask_image when the selected model does not support images (current: {0})": "当所选模型不支持图片时，ask_image 使用的视觉模型（当前：{0}）",
+	"Vision model used by ask_image when the selected model does not support images (empty = auto)": "当所选模型不支持图片时，ask_image 使用的视觉模型（留空 = 自动选择）",
+	"No vision-capable models found. Make sure an API key is configured and the model list is reachable.": "未找到支持视觉的模型。请确认已配置 API Key 且模型列表可访问。",
+	"No vision-capable model is available. Configure amdTokenFactory.visionProxyModel or enable a vision model.": "没有可用的视觉模型。请配置 amdTokenFactory.visionProxyModel，或启用一个支持视觉的模型。",
+	"Vision proxy model set to {0}": "视觉代理模型已设为 {0}",
+
 	// keyManager.ts - API Key management
 	"Available": "可用",
 	"Unavailable": "不可用",

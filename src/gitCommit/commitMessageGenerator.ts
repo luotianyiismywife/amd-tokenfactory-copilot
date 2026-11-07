@@ -4,8 +4,7 @@ import * as vscode from "vscode";
 import { getGitDiff, getRecentCommits } from "./gitUtils";
 import { OpenaiApi } from "../api/openai/openaiApi";
 import { AnthropicApi } from "../api/anthropic/anthropicApi";
-import { getBuiltInModelConfig } from "../models/models";
-import { getAnthropicSupportedModelIds } from "../models/apiModelList";
+import { ensureModelRegistry, getAnthropicModelIds, getModelInfo, toProviderModelItem } from "../models";
 import { logger } from "../core/logger";
 import { l10n, l10nFormat } from "../core/localize";
 import { API_BASE_URL } from "../platform/platformConfig";
@@ -244,8 +243,22 @@ async function performCommitMsgGeneration(secrets: vscode.SecretStorage, gitDiff
 
         // Use model from config or the neutral default (replace with your platform's model)
         const commitModelId = config.get<string>("amdTokenFactory.commitModel", "DeepSeek-V4-Flash");
+
+        const primaryEntry = await ensureApiKeyEntry(secrets);
+        if (!primaryEntry) {
+            throw new Error(l10n("API key not found"));
+        }
+
+        // Make sure the normalized model registry is populated before resolving
+        // the commit model — otherwise a model that only exists on the platform
+        // (not in the built-in fallback list) would resolve to a bare config.
+        await ensureModelRegistry(primaryEntry.value);
+
         // Fetch full model config (apiMode, max_completion_tokens, extra, etc.)
-        const selectedModel: ProviderModelItem = getBuiltInModelConfig(commitModelId) ?? { id: commitModelId, owned_by: "provider" };
+        const commitModelInfo = getModelInfo(commitModelId);
+        const selectedModel: ProviderModelItem = commitModelInfo
+            ? toProviderModelItem(commitModelInfo)
+            : { id: commitModelId, owned_by: "provider" };
         // Commit messages are simple tasks — disable thinking to speed up generation.
         selectedModel.enable_thinking = false;
         // Cap max_completion_tokens to avoid proxy 500 errors with oversized values
@@ -254,11 +267,6 @@ async function performCommitMsgGeneration(secrets: vscode.SecretStorage, gitDiff
         }
         modelId = selectedModel.id;
         logger.info("commit.start", { modelId });
-
-        const primaryEntry = await ensureApiKeyEntry(secrets);
-        if (!primaryEntry) {
-            throw new Error(l10n("API key not found"));
-        }
 
         const baseUrl = selectedModel.baseUrl || API_BASE_URL;
         if (!baseUrl || !baseUrl.startsWith("http")) {
@@ -286,8 +294,7 @@ async function performCommitMsgGeneration(secrets: vscode.SecretStorage, gitDiff
         if (apiModeSetting === "openai" || apiModeSetting === "anthropic") {
             apiMode = apiModeSetting;
         } else {
-            const anthropicModelIds = await getAnthropicSupportedModelIds(primaryEntry.value);
-            if (enableAnthropicApi && anthropicModelIds.has(commitModelId)) {
+            if (enableAnthropicApi && getAnthropicModelIds().has(commitModelId)) {
                 apiMode = "anthropic";
             } else {
                 apiMode = "openai";

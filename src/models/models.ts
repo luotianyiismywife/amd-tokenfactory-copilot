@@ -1,12 +1,16 @@
 import * as vscode from "vscode";
-import type { LanguageModelChatInformation } from "vscode";
-import type { ProviderModelItem } from "../core/types";
-import { l10n } from "../core/localize";
 
 /**
  * Built-in model definition (see BUILT_IN_MODELS below).
+ *
+ * 这是**唯一**需要手工维护的模型表：上下文窗口、输出上限、视觉能力、思考档位、
+ * 额外请求体参数都写在这里。
+ *
+ * ⚠️ 它只是**离线兜底**：`registry.ts` 仅在 `/v1/models` 获取失败（或未配置 key /
+ * 关闭自动发现）时整份采用本清单；API 成功时模型信息完全来自平台 + models.dev，
+ * 本清单的旧值不覆盖、不补写任何字段。
  */
-interface BuiltInModelDef {
+export interface BuiltInModelDef {
     /** Base model ID sent to the API (e.g., "example-model") */
     baseId: string;
     /** User-friendly display name (e.g., "Example Model") */
@@ -35,9 +39,9 @@ interface BuiltInModelDef {
     apiMode?: "openai" | "anthropic";
 }
 
-const EXTENSION_LABEL = "AMD TokenFactory";
-const DEFAULT_CONTEXT_LENGTH = 128000;
-const DEFAULT_MAX_TOKENS = 32768;
+export const EXTENSION_LABEL = "AMD TokenFactory";
+export const DEFAULT_CONTEXT_LENGTH = 128000;
+export const DEFAULT_MAX_TOKENS = 32768;
 
 /**
  * Default ratio of the real context window to declare as `maxInputTokens`.
@@ -83,7 +87,7 @@ export function getMaxInputTokensRatio(): number {
  * **不支持 `thinking` 参数**。思考是模型固有属性——Qwen3.8 系列恒产出思考、
  * DeepSeek-V4 系列恒不产出，档位只影响深度且非确定性。
  */
-const BUILT_IN_MODELS: BuiltInModelDef[] = [
+export const BUILT_IN_MODELS: BuiltInModelDef[] = [
     { baseId: "DeepSeek-V4.1-Flash", displayName: "DeepSeek-V4.1-Flash", vision: true, thinkingMode: "switchable", supportedReasoningEfforts: ["low", "medium", "high"], defaultReasoningEffort: "high", contextLength: 1048576, maxTokens: 32768 },
     { baseId: "DeepSeek-V4-Flash", displayName: "DeepSeek-V4-Flash", vision: false, thinkingMode: "switchable", supportedReasoningEfforts: ["low", "medium", "high"], defaultReasoningEffort: "high", contextLength: 1048576, maxTokens: 32768 },
     { baseId: "Gemma-4-31B-IT", displayName: "Gemma 4 31B", vision: true, thinkingMode: "switchable", supportedReasoningEfforts: ["low", "medium", "high"], defaultReasoningEffort: "high", contextLength: 262144, maxTokens: 32768 },
@@ -106,156 +110,20 @@ export function getBuiltInModelIds(): Set<string> {
 }
 
 /**
- * Get the built-in model list as LanguageModelChatInformation[].
- * Each model registers one entry with a configurationSchema for reasoning effort selection.
- * - switchable models: include "禁用思考" option so user can turn off thinking
- * - always models: no "禁用思考" option, thinking always on
- * All labels and descriptions use l10n() for i18n.
+ * Look up a built-in model definition by its bare model ID.
+ *
+ * This is the OFFLINE fallback catalog — the only place where per-model
+ * defaults (context window, output cap, vision, thinking mode, extra body
+ * params) are declared by hand. `registry.ts` uses it **only** when
+ * `/v1/models` cannot be fetched, so no other module keeps its own model table.
  */
-export function getBuiltInModelInfos(): LanguageModelChatInformation[] {
-    const infos: LanguageModelChatInformation[] = [];
-
-    for (const def of BUILT_IN_MODELS) {
-        // Declare maxInputTokens as a configurable ratio (default 80%) of the real
-        // context window so VS Code's agent auto-compaction (~90% of maxInputTokens)
-        // fires before the context actually fills up.
-        const maxInput = Math.floor((def.contextLength ?? DEFAULT_CONTEXT_LENGTH) * getMaxInputTokensRatio());
-
-        const info: LanguageModelChatInformation = {
-            id: def.baseId,
-            name: def.displayName,
-            detail: EXTENSION_LABEL,
-            tooltip: EXTENSION_LABEL,
-            family: EXTENSION_LABEL,
-            version: "1.0.0",
-            maxInputTokens: maxInput,
-            maxOutputTokens: def.maxTokens ?? DEFAULT_MAX_TOKENS,
-            isUserSelectable: true,
-            capabilities: {
-                toolCalling: true,
-                // Always declare imageInput=true so VS Code passes image data through.
-                // Non-vision models handle images via the ask_image tool proxy internally.
-                imageInput: true,
-            },
-        };
-
-        // Build enum values based on thinking mode
-        // - "switchable" + hasEfforts: disabled / [effort levels]             (e.g. disabled/high/max)
-        // - "switchable" + no efforts: disabled / enabled
-        // - "adaptive"               : disabled / adaptive                    (only two: off or auto-decide)
-        // - "always"    + hasEfforts: [effort levels]
-        // - "always"    + no efforts: enabled
-        const hasEfforts = def.supportedReasoningEfforts && def.supportedReasoningEfforts.length > 0;
-        let enumValues: string[];
-        if (hasEfforts) {
-            if (def.thinkingMode === "switchable") {
-                enumValues = ["disabled", ...def.supportedReasoningEfforts!];
-            } else {
-                enumValues = [...def.supportedReasoningEfforts!];
-            }
-        } else {
-            if (def.thinkingMode === "switchable") {
-                enumValues = ["disabled", "enabled"];
-            } else if (def.thinkingMode === "adaptive") {
-                enumValues = ["disabled", "adaptive"];
-            } else {
-                enumValues = ["enabled"];
-            }
-        }
-
-        // Map effort values to localized labels and descriptions
-        // Keys are English strings that serve as fallback for non-Chinese locales
-        const getLabel = (e: string): string => {
-            switch (e) {
-                case 'disabled': return l10n("Disabled");
-                case 'adaptive': return l10n("Adaptive");
-                case 'enabled': return l10n("Thinking");
-                case 'low': return l10n("Low");
-                case 'medium': return l10n("Medium");
-                case 'high': return l10n("High");
-                case 'max': return l10n("Maximum");
-                default: return e.charAt(0).toUpperCase() + e.slice(1);
-            }
-        };
-        const getDesc = (e: string): string => {
-            switch (e) {
-                case 'disabled': return l10n("Do not enable thinking");
-                case 'adaptive': return l10n("Automatically decide when to think");
-                case 'enabled': return l10n("Enable thinking");
-                case 'low': return l10n("Reduce thinking, faster response");
-                case 'medium': return l10n("Balance thinking and speed");
-                case 'high': return l10n("Deeper thinking, slower response");
-                case 'max': return l10n("Maximum thinking depth, slowest response");
-                default: return e;
-            }
-        };
-
-        const enumItemLabels = enumValues.map(getLabel);
-        const enumDescriptions = enumValues.map(getDesc);
-
-        // Determine default: for switchable with efforts, use defaultReasoningEffort or last item;
-        // for others, use the last enum value (enabled/highest effort)
-        const defaultEffort = (hasEfforts && def.defaultReasoningEffort)
-            ? def.defaultReasoningEffort
-            : enumValues[enumValues.length - 1];
-
-        infos.push({
-            ...info,
-            configurationSchema: {
-                properties: {
-                    reasoningEffort: {
-                        type: 'string',
-                        title: l10n("Reasoning Effort"),
-                        enum: enumValues,
-                        enumItemLabels: enumItemLabels,
-                        enumDescriptions: enumDescriptions,
-                        default: defaultEffort,
-                        group: 'navigation',
-                    },
-                },
-            },
-        } satisfies LanguageModelChatInformation);
-    }
-
-    return infos;
+export function getBuiltInModelDef(modelId: string): BuiltInModelDef | undefined {
+    return BUILT_IN_MODELS.find((m) => m.baseId === modelId);
 }
 
 /**
- * Find a built-in model definition by model ID.
- * Returns the model properties including thinking mode, API mode, and extra parameters.
- * Thinking state (enable_thinking) is initially set to true and will be adjusted
- * by provider.ts based on the user's reasoning effort selection.
+ * All built-in model definitions, in declaration order.
  */
-export function getBuiltInModelConfig(modelId: string): ProviderModelItem | undefined {
-    const def = BUILT_IN_MODELS.find((m) => m.baseId === modelId);
-    if (!def) {
-        return undefined;
-    }
-
-    const model: ProviderModelItem = {
-        id: def.baseId,
-        owned_by: "provider",
-        displayName: def.displayName,
-        vision: def.vision,
-        supportsTemperature: def.supportsTemperature ?? true,
-        fixedTopP: def.fixedTopP,
-        context_length: def.contextLength ?? DEFAULT_CONTEXT_LENGTH,
-        max_completion_tokens: def.maxTokens ?? DEFAULT_MAX_TOKENS,
-        apiMode: def.apiMode ?? "openai",
-        enable_thinking: true,
-        include_reasoning_in_request: true,
-        thinkingMode: def.thinkingMode,
-    };
-
-    // Set default reasoning effort if configured
-    if (def.defaultReasoningEffort) {
-        model.reasoning_effort = def.defaultReasoningEffort;
-    }
-
-    // Pass through extra body parameters
-    if (def.extra) {
-        model.extra = { ...def.extra };
-    }
-
-    return model;
+export function getBuiltInModelDefs(): readonly BuiltInModelDef[] {
+    return BUILT_IN_MODELS;
 }

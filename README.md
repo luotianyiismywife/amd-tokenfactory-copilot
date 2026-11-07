@@ -21,7 +21,7 @@ Architecture based on [any2copilot](https://github.com/luotianyiismywife/any2cop
 | **Auto model discovery** | Fetch the live model list from `/v1/models`, hide non-chat endpoints, discover new ones |
 | **Streaming + thinking** | SSE streaming, reasoning content (the **`reasoning`** field), XML ` thinking` block parsing |
 | **Tool calling** | VS Code `LanguageModelToolCallPart` support |
-| **Vision proxy (`ask_image`)** | Text-only models can ask a vision model about images, with cross-turn history persistence |
+| **Vision proxy (`ask_image`)** | Text-only models can ask a vision model about images, with cross-turn history persistence. Pick the vision model with the `Select Vision Proxy Model` command (loads the live `/v1/models` list and resolves vision capability via models.dev) |
 | **Token counting** | `o200k_base` tiktoken, native token indicator |
 | **Git commit messages** | Conventional-commit generation from the SCM panel |
 | **i18n** | Simplified Chinese + English |
@@ -63,7 +63,7 @@ Sign in at <https://developer.amd.com.cn/radeon/tokenfactory> and create an API 
 | `amdTokenFactory.maxInputTokensRatio` | `1.0` | Declared input window ratio (controls Copilot auto-compaction) |
 | `amdTokenFactory.temperature` / `amdTokenFactory.top_p` | `1` / `0.5` | Sampling params |
 | `amdTokenFactory.modelPreset` / `amdTokenFactory.modelPresets` | `custom` | Temperature/top_p presets |
-| `amdTokenFactory.visionProxyModel` | `Qwen3.8-27B` | Vision model used by the `ask_image` proxy |
+| `amdTokenFactory.visionProxyModel` | *(empty = auto)* | Vision model used by the `ask_image` proxy (pick it with the `Select Vision Proxy Model` command) |
 | `amdTokenFactory.visionMaxRounds` | `5` | Max `ask_image` rounds per request |
 | `amdTokenFactory.cloudSyncAutoPull` / `cloudSyncAutoPush` | `true` / `false` | Cloud sync automation |
 | `amdTokenFactory.commit*` | — | Git commit message generation settings |
@@ -146,7 +146,7 @@ MIT. Architecture based on [any2copilot](https://github.com/luotianyiismywife/an
 | `amdTokenFactory.maxInputTokensRatio` | `1.0` | 声明的输入窗口比例（控制 Copilot 自动压缩） |
 | `amdTokenFactory.temperature` / `amdTokenFactory.top_p` | `1` / `0.5` | 采样参数 |
 | `amdTokenFactory.modelPreset` / `amdTokenFactory.modelPresets` | `custom` | temperature/top_p 预设 |
-| `amdTokenFactory.visionProxyModel` | `Qwen3.8-27B` | `ask_image` 代理使用的视觉模型 |
+| `amdTokenFactory.visionProxyModel` | *(留空 = 自动)* | `ask_image` 代理使用的视觉模型（用命令 `选择视觉代理模型` 挑选） |
 | `amdTokenFactory.visionMaxRounds` | `5` | 每次请求最多 `ask_image` 轮数 |
 | `amdTokenFactory.cloudSyncAutoPull` / `cloudSyncAutoPush` | `true` / `false` | 云同步自动化 |
 | `amdTokenFactory.commit*` | — | Git 提交消息生成设置 |

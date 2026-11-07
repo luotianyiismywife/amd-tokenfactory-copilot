@@ -16,8 +16,7 @@ import type { ProviderModelItem } from "../core/types";
 
 import { createRetryConfig } from "../core/utils";
 
-import { prepareLanguageModelChatInformation, getAutoDiscoveredModelConfig } from "../models/provideModel";
-import { getBuiltInModelConfig } from "../models/models";
+import { getModelInfo, prepareLanguageModelChatInformation, toProviderModelItem } from "../models";
 import { l10n, l10nFormat } from "../core/localize";
 import { countMessageTokens, textTokenLength, estimateInputTokens } from "../tokenizer/provideToken";
 import type { StreamUsage } from "../api/commonApi";
@@ -175,12 +174,10 @@ export class ChatModelProvider implements LanguageModelChatProvider {
         let cancelListener: vscode.Disposable | undefined;
 
         try {
-            // Get built-in model config (with fallback to auto-discovered config)
+            // Get the normalized model config (built-in + API-discovered, one lookup)
             const config = vscode.workspace.getConfiguration();
-            let um: ProviderModelItem | undefined = getBuiltInModelConfig(model.id);
-            if (!um) {
-                um = getAutoDiscoveredModelConfig(model.id);
-            }
+            const modelInfo = getModelInfo(model.id);
+            const um: ProviderModelItem | undefined = modelInfo ? toProviderModelItem(modelInfo) : undefined;
 
             // Apply reasoning effort / temperature from user settings
             if (um) {

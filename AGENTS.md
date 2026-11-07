@@ -39,7 +39,7 @@
 | **自动模型发现** | 从 `/v1/models` 拉取实时模型列表，过滤非 chat 端点，隐藏不可用模型 |
 | **流式 + 思考** | SSE 流式、推理内容（**`reasoning` 字段**）、XML ` thinking` 块解析 |
 | **工具调用** | 支持 VS Code `LanguageModelToolCallPart` |
-| **图片代理（ask_image）** | 非视觉模型可向视觉模型提问图片，含跨轮历史持久化 |
+| **图片代理（ask_image）** | 非视觉模型可向视觉模型提问图片，含跨轮历史持久化；视觉模型经命令 `选择视觉代理模型`（`amdtokenfactory.selectVisionProxyModel`）从 `/v1/models` 实时列表 + models.dev 判定中挑选 |
 | **Token 计数** | `o200k_base` tiktoken，原生 Token 指示器 |
 | **Git 提交消息生成** | 从 SCM 面板生成 Conventional Commit |
 | **国际化** | 简体中文 + 英文 |
@@ -93,7 +93,7 @@
 │  用户发送消息 → LanguageModelChatProvider                            │
 │                    ↓                                                │
 │  ChatModelProvider (provider/provider.ts)                           │
-│   1. 获取模型配置 (getBuiltInModelConfig / getAutoDiscoveredModelConfig) │
+│   1. 获取归一化模型信息 (getModelInfo)                                  │
 │   2. 应用推理强度 (applyReasoningEffort) + temperature (applyTemperature) │
 │   3. 确定 API 模式 (resolveApiMode)                                  │
 │   4. 估算输入 token (estimateInputTokens)                            │
@@ -120,8 +120,8 @@ activate(context)
   ├── vscode.lm.registerLanguageModelChatProvider("amdtokenfactory", provider)
   ├── registerCommands(context, provider)   ← 委托 src/commands/registerCommands.ts
   │   ├── onDidChangeConfiguration 监听       ← apiMode / enableAutoModelDiscovery 变化时刷新模型列表
-  │   └── 注册命令（manageApiKeys / openSettings / generateGitCommitMessage /
-  │       abortGitCommitMessage / syncPush / syncPull）
+  │   └── 注册命令（manageApiKeys / selectVisionProxyModel / openSettings /
+  │       generateGitCommitMessage / abortGitCommitMessage / syncPush / syncPull）
   ├── syncModelsOnStartup(context)          ← 启动模型同步（每日最多一次）
   ├── autoPullOnStartup(context)            ← 启动云同步自动拉取（静默）
   ├── registerCloudSyncAutoPush(context)    ← 注册 key store 变更监听（去抖自动推送）
@@ -132,7 +132,7 @@ activate(context)
 
 ```
 provideLanguageModelChatResponse(model, messages, options, progress, token)
-  ├── 1. 解析模型 ID → getBuiltInModelConfig(model.id)（失败回退 getAutoDiscoveredModelConfig）
+  ├── 1. 解析模型 ID → getModelInfo(model.id)（内置清单 + API 发现统一查询）
   ├── 2. applyReasoningEffort（disabled/enabled/adaptive/high…）
   ├── 2b. applyTemperature（模型预设或自定义）
   ├── 3. resolveApiMode（用户设置优先；auto → openai 兜底）
@@ -280,18 +280,22 @@ src/
 │   ├── health.ts                         # 瞬态冷却、轮换错误判定、失效原因、状态更新
 │   ├── availability.ts                   # key 可用性手动检测（最小真实聊天请求）
 │   └── mask.ts                           # 脱敏显示辅助
-├── models/                               # 模型定义与发现
-│   ├── models.ts                         # 内置模型定义清单
+├── models/                               # 模型信息（数据源 → 归一化注册表 → 适配器）
+│   ├── models.ts                         # 内置模型清单（唯一手工维护的模型表）
 │   ├── modelsDev.ts                      # models.dev 元数据拉取与查询
 │   ├── apiModelList.ts                   # API 模型列表获取（/v1/models）
-│   ├── visionModels.ts                   # 视觉能力判定
+│   ├── visionModels.ts                   # 视觉能力判定（纯解析器）
+│   ├── registry.ts                       # ★ 归一化注册表（单一事实来源）
+│   ├── chatInfo.ts                       # 形状适配（VS Code 条目 / 请求体配置）
+│   ├── index.ts                          # barrel（其他模块统一从此导入）
 │   ├── modelSync.ts                      # 启动模型同步（每日一次，一行日志）
-│   └── provideModel.ts                   # 模型信息提供函数（含自动发现）
+│   └── provideModel.ts                   # VS Code 模型提供商入口（仅适配）
 ├── commands/                             # 命令与 QuickPick UI
 │   ├── registerCommands.ts               # 全部命令注册 + 配置变更监听
 │   ├── apiKeyManagerUi.ts                # manageApiKeys 主入口
 │   ├── apiKeyDisplay.ts                  # key 展示辅助
-│   └── apiKeyFlows.ts                    # key 管理交互流程
+│   ├── apiKeyFlows.ts                    # key 管理交互流程
+│   └── visionProxyCommand.ts             # 视觉代理模型选择（visionProxyModel）
 ├── core/                                 # 基础设施
 │   ├── logger.ts                         # 日志系统
 │   ├── localize.ts                       # 国际化/本地化
@@ -345,15 +349,19 @@ docs/                                     # 设计文档
 | `keys/selection.ts` | `getPrimaryApiKey` / `pickNextApiKey` / `shouldSingleKeyFallbackSwitch` / `setActiveKeyByValue` | key 选择 |
 | `keys/health.ts` | 瞬态冷却、`matchErrorRule`、失效原因、状态更新 | key 健康 |
 | `keys/availability.ts` | `testKeyAvailability`（最小真实聊天请求） | key 可用性 |
-| `models/models.ts` | 内置模型定义清单 + 模型配置查询 | 模型定义 |
+| `models/models.ts` | 内置模型清单（唯一手工维护的模型表）+ 默认值 | 模型定义 |
 | `models/apiModelList.ts` | API 模型列表获取（`/v1/models`），5 分钟缓存，静默降级 | 模型列表 |
-| `models/visionModels.ts` | 视觉能力判定（API 标记 → models.dev → 硬编码兜底） | 视觉能力 |
+| `models/visionModels.ts` | 视觉能力判定（纯解析器：API 标记 → models.dev，不参与内置清单） | 视觉能力 |
+| `models/registry.ts` | ★ 归一化注册表：`/v1/models` + models.dev 合并为 `ModelInfo`；内置清单**仅在 API 失败时**整份兜底 | 单一事实来源 |
+| `models/chatInfo.ts` | 形状适配：`ModelInfo` → VS Code 条目 / 请求体配置 | 适配器 |
+| `models/index.ts` | barrel：其他模块统一 `import { … } from "../models"` | 出口 |
 | `models/modelSync.ts` | 启动模型同步（每日一次，一行日志） | 模型同步 |
-| `models/provideModel.ts` | 模型信息提供函数（含自动发现） | 模型信息 |
+| `models/provideModel.ts` | VS Code 模型提供商入口（仅适配 registry + chatInfo） | 模型信息 |
 | `commands/registerCommands.ts` | 注册全部命令 + `onDidChangeConfiguration` 监听 | 命令注册 |
 | `commands/apiKeyManagerUi.ts` | `showApiKeyManager()` 主入口 | key 管理 UI |
 | `commands/apiKeyDisplay.ts` | key 展示辅助（纯函数） | key 展示 |
 | `commands/apiKeyFlows.ts` | key 管理交互流程 | key 管理 |
+| `commands/visionProxyCommand.ts` | `selectVisionProxyModel()`：从 `/v1/models` + models.dev 挑选视觉模型写入设置 | 视觉代理模型选择 |
 | `core/logger.ts` | 日志输出 (LogOutputChannel) | 日志系统 |
 | `core/localize.ts` | 中英文国际化 | 国际化 |
 | `core/utils.ts` | 工具函数（重试、角色映射、工具转换、JSON 修复等） | 工具函数 |
@@ -388,7 +396,7 @@ docs/                                     # 设计文档
 |------|------|
 | `src/models/apiModelList.ts` → `normalizeModelEntry()` | `/v1/models` 响应解析（`{data:[...]}` 结构，过滤非 chat 端点） |
 | `src/keys/config.ts` → `DEFAULT_ERROR_RULES` | 错误分类规则（401/402 → persist；429/502/503/504 → cooldown；500 → retrySameKey） |
-| `src/models/visionModels.ts` → `HARDCODED_VISION` | 视觉能力兜底 |
+| `src/models/models.ts` → `BUILT_IN_MODELS[].vision` | 视觉能力兜底 |
 | `src/api/openai/openaiApi.ts` → `prepareRequestBody` | **只发 `reasoning_effort`，绝不发 `thinking`** |
 | `src/api/anthropic/anthropicApi.ts` → `prepareRequestBody` | 同上 |
 
@@ -414,6 +422,49 @@ docs/                                     # 设计文档
 | `api/responses/` 目录 | AMD 不支持 Responses 协议 |
 | `ApiKeyEntry.credential` 字段 | 凭据仅用于余额查询 |
 | `package.json` 的 `showUsage` / `usageRefreshInterval` / `minBalanceCny` / `balanceCheckIntervalSec` 设置 | 余额相关 |
+
+### 4.5 视觉能力判定的数据源与已知差异
+
+**判定链**（`src/models/visionModels.ts` → `resolveVisionCapability(apiMeta, devEntry)`，首个命中即返回）：
+
+| 顺序 | 数据源 | 信号强度 | 说明 |
+|------|--------|----------|------|
+| 1 | `/v1/models` → `architecture.input_modalities` 含 `"image"` | **权威** | 平台自述，直接采信 |
+| 2 | `/v1/models` → `providers[0].vision` | **权威** | 必须是**真布尔值**；字段缺失 = 无信号，返回 `undefined` 继续下探 |
+| 3 | models.dev → `modalities.input` 含 `"image"` | 中 | 精确信号，优先于 `attachment` |
+| 4 | models.dev → `attachment` | 弱 | 仅表示"接受文件上传"，可能仅 PDF；仅当无 `modalities` 时使用 |
+| 5 | 未知 | — | 一律 `false`（纯文本），图片走 `ask_image` 代理 |
+
+**内置清单 `BUILT_IN_MODELS[].vision` 不参与本判定链**：它只在 `/v1/models` 整体获取失败时由 `registry.ts` 的 `fromBuiltIn()` 整份接管列表（见 §5.6）。
+
+**为什么 models.dev 只能补充、不能覆盖平台**：models.dev 描述的是**上游模型**（如智谱的 GLM-4.5），不是 AMD 这个具体部署。同一上游模型在不同平台/不同量化版本上的多模态能力可能被裁剪。实测反例：
+
+| 模型 | models.dev（上游） | AMD `/v1/models`（本平台） | 结论 |
+|------|-------------------|---------------------------|------|
+| `GLM-5.3-Flash` | `attachment=true`，`modalities.input=["text","image","video","pdf"]` | `input_modalities=["text"]` | **平台裁剪了视觉能力**，以平台为准 |
+| `DeepSeek-V4-Flash` | `attachment=false`，`["text"]` | `["text"]` | 一致 |
+| 其余 8 个 | 含 `image` | 含 `image` | 一致 |
+
+> 2026-11-08 实测：models.dev 目录（609 条）中 AMD 这 10 个模型**全部可命中**（靠大小写不敏感的短 ID 匹配，如 `GLM-5.3-Flash` → `zhipuai/glm-5.3-flash`）。但只有 `GLM-5.3-Flash` 与平台结论冲突，且平台优先，因此判定结果正确。
+
+**误判代价不对称**（决定"未知按纯文本"这条默认值）：
+
+| 误判方向 | 后果 |
+|----------|------|
+| 纯文本模型 → 判成视觉（false positive） | 图片直发 → 平台 **400 硬失败**，功能完全不可用 |
+| 视觉模型 → 判成纯文本（false negative） | 图片走 `ask_image` 代理 → **仍能正常回答**，只多一跳 |
+
+因此判定链一律"宁可漏判"，且**不做模糊/后缀匹配**（模糊命中错误条目会直接踩中最坏的那一侧）。
+
+**残余风险（已知，暂不处理）**：
+
+当平台**完全不给视觉信号**（`input_modalities` 为空且 `providers[].vision` 缺失）且 models.dev 说支持视觉、但实际不支持时，会误判为视觉 → 图片直发 → 400。当前**无自愈**：`DEFAULT_ERROR_RULES` 只覆盖 401/402/429/500/502/503/504，400 不匹配任何规则 → `rotation.ts` 直接抛出原始错误，下次仍会重犯。
+
+AMD 平台当前**不属于**此情形（`/v1/models` 明确返回 `architecture.input_modalities`，10 个模型全部有表态），故暂不实现。若移植到不返回能力标记的平台，可选补强（按推荐度排序）：
+
+1. **错误驱动学习**（零额外配额）：在 `apiDispatch` 的 `!res.ok` 分支识别"图片不被支持"类 400（`image` + `not supported` / `invalid` / `modality` / `unsupported content`），记入会话级 negative cache；`provider.ts` 构造 `modelConfig.vision` 时查该 cache，命中则降级为纯文本 + `ask_image` 代理，并给友好提示。代价从"永久不可用"降到"首次一次失败"。
+2. **`supported_parameters` 兜底**（通用脚手架改进）：`normalizeModelEntry` 里若 `supported_parameters` 含 `vision` / `image` / `image_url`，也算平台表态。AMD 不返回这些，对其他平台有用。
+3. **主动探测**（权威但花配额）：首次遇到"平台无信号 + models.dev 说支持"时发 1×1 PNG 最小请求，看 200/400，结果缓存到 `globalState`。AMD 每天仅 $1 额度，**不建议**。
 
 ---
 
@@ -464,12 +515,31 @@ docs/                                     # 设计文档
 
 ### 5.6 `src/models/` 模块
 
-- `models.ts`：`BUILT_IN_MODELS` / `getBuiltInModelInfos` / `getBuiltInModelIds` / `getMaxInputTokensRatio` / `getBuiltInModelConfig`
-- `apiModelList.ts`：`getApiModelIds` / `getApiModelMetadataList` / `getResponsesSupportedModelIds` / `getAnthropicSupportedModelIds` / `isApiFetchSuccessful`
-- `modelsDev.ts`：`ensureModelsDevLoaded` / `lookupModelDevEntry`
-- `visionModels.ts`：`resolveVisionCapability`
+> **模型信息归一化铁律**：模型数据、能力判定、字段兜底**只在 `src/models` 内实现一次**。
+> 其他模块（`provider/`、`commands/`、`gitCommit/`）一律从 `"../models"` 取归一化结果，
+> 不得自己拼装模型信息、不得自己维护模型表、不得重复写 `??` 兜底链。
+>
+> 分层：**数据源**（`models.ts` / `apiModelList.ts` / `modelsDev.ts`）→ **能力判定**（`visionModels.ts`）
+> → **归一化注册表**（`registry.ts`，单一事实来源）→ **形状适配**（`chatInfo.ts`）→ **消费方**。
+>
+> **内置清单只在 `/v1/models` 获取失败时生效**（整份列表兜底），不是叠加层：
+> API 成功时模型信息完全来自平台 + models.dev，内置清单的旧值不覆盖、不补写任何字段。
+> 字段级优先级：`/v1/models` > models.dev > 代码默认值。
+
+- `models.ts`：`BUILT_IN_MODELS` / `BuiltInModelDef` / `getBuiltInModelDef` / `getBuiltInModelDefs` / `getBuiltInModelIds` / `getMaxInputTokensRatio` / `EXTENSION_LABEL` / `DEFAULT_CONTEXT_LENGTH` / `DEFAULT_MAX_TOKENS`
+- `apiModelList.ts`：`getApiModelIds` / `getApiModelMetadataList` / `isApiFetchSuccessful`；类型 `ApiModelMetadata`
+  - `supports_vision` 是**三态**：`true` / `false` / `undefined`（平台未表态）。只有 `architecture.input_modalities` 非空或 `providers[].vision` 是**真布尔值**时才算有信号；`providers` 存在但缺 `vision` 字段仍属无信号，必须返回 `undefined` 让判定链继续下探。
+- `modelsDev.ts`：`ensureModelsDevLoaded` / `lookupModelDevEntry`；类型 `ModelsDevEntry`
+  - 查找**大小写不敏感**（models.dev 键全小写 `z-ai/glm-4.5`，平台 ID 首字母大写 `GLM-5.3-Flash`），只做全 ID / 短 ID 精确匹配，**不做模糊后缀匹配**。
+- `visionModels.ts`：`resolveVisionCapability(apiMeta, devEntry)`（纯解析器，无模型表）
+  - 判定顺序：平台标记 → models.dev `modalities.input`（精确）→ models.dev `attachment`（粗信号，仅当无 modalities）→ `false`。
+  - **误判代价不对称**：把纯文本模型误判为视觉 → 图片直发 → 平台 400 硬失败；把视觉模型误判为纯文本 → 图片走 ask_image 代理 → 仍可用。因此未知一律按纯文本处理，且不做模糊匹配。
+  - 完整判定链、`GLM-5.3-Flash` 平台/上游差异实测、残余风险与可选补强方案见 **§4.5**。
+- `registry.ts`：`ModelInfo` / `bareModelId` / `refreshModelRegistry(apiKey, autoDiscoveryEnabled)` / `ensureModelRegistry(apiKey)` / `getModelInfos` / `getModelInfo` / `getVisionModelInfos` / `isVisionCapableModelId` / `getAnthropicModelIds`
+- `chatInfo.ts`：`toLanguageModelChatInformation(info)` / `toProviderModelItem(info)`
 - `modelSync.ts`：`syncModelsOnStartup`
-- `provideModel.ts`：`prepareLanguageModelChatInformation` / `getResponsesModelIds` / `getAnthropicModelIds` / `getAutoDiscoveredModelConfig` / `isVisionCapableModelId`
+- `provideModel.ts`：`prepareLanguageModelChatInformation`（VS Code 入口，仅调用 registry + chatInfo）
+- `index.ts`：barrel，其他模块统一 `import { … } from "../models"`
 
 ### 5.7 `src/commands/` 模块
 
@@ -477,6 +547,7 @@ docs/                                     # 设计文档
 - `apiKeyManagerUi.ts`：`showApiKeyManager(context)`
 - `apiKeyDisplay.ts`：`buildKeyDetailLine` / `buildKeyQuickPickItems`
 - `apiKeyFlows.ts`：`KeyManagerContext` / `addKeyFlow` / `parseBatchImport` / `batchImportFlow` / `deleteKeysFlow` / `pickKey` / `checkAvailabilityFlow` / `checkAllAvailabilityFlow` / `showCheckMenu` / `editKeyFlow`
+- `visionProxyCommand.ts`：`selectVisionProxyModel(secrets)`（内部 `collectVisionModels`）——调用 `refreshModelRegistry` 后取 `getVisionModelInfos()`（与运行时自动兜底同源）；选择结果写入 `amdTokenFactory.visionProxyModel`（已定义于工作区/工作区文件夹时写入该作用域，否则用户级）
 
 ### 5.8 `src/core/` 模块
 
@@ -660,7 +731,7 @@ type 取值：`feat` | `fix` | `refactor` | `docs` | `chore` | `improve` 等。
 | 类 | PascalCase | `ChatModelProvider` |
 | 接口 | PascalCase | `BuiltInModelDef`, `ProviderModelItem` |
 | 类型 | PascalCase | `OpenAIChatRole`, `ParsedModelId` |
-| 函数 | camelCase | `getBuiltInModelConfig`, `countMessageTokens` |
+| 函数 | camelCase | `getModelInfo`, `countMessageTokens` |
 | 变量 | camelCase | `requestTimeoutMs`, `apiKey` |
 | 常量 | UPPER_SNAKE_CASE | `BASE_TOKENS_PER_MESSAGE`, `DEFAULT_CONTEXT_LENGTH` |
 | 私有属性 | `_` 前缀 | `_lastRequestTime`, `_toolCallBuffers` |

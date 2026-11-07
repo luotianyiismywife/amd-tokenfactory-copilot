@@ -2,6 +2,31 @@
 
 本文件记录 amd-tokenfactory-copilot 的用户可感知变更。格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/),版本号遵循语义化版本(新功能升 y,修 bug/调整升 z)。
 
+## [2.0.2] - 2026-11-08
+
+### 修复
+
+- **`选择视觉代理模型` 命令缺失**：`amdTokenFactory.visionProxyModel` 的设置说明中提示"请用命令 `选择视觉代理模型` 从当前可用的视觉模型中选择"，但该命令此前从未在 `package.json` 中声明、也未在 `registerCommands.ts` 中注册，命令面板里根本找不到，用户只能手写模型 ID。现补齐 `amdtokenfactory.selectVisionProxyModel` 命令（`src/commands/visionProxyCommand.ts`）：从 `/v1/models` 实时列表经 `resolveVisionCapability`（平台标记 → models.dev → 内置清单）筛选视觉模型，API 不可用/未配置 key/未识别出视觉模型时回退内置清单中 `vision === true` 的模型，选中后写入 `amdTokenFactory.visionProxyModel`（已定义于工作区/工作区文件夹时写入该作用域，否则用户级），并标注当前生效项。
+- **设置项说明与实际能力不符**：`amdTokenFactory.visionProxyModel` 本身是自由文本字符串（VS Code 设置无法动态枚举远端模型），说明文案已改为明确指向该命令，README 与欢迎页（walkthrough）同步补充命令入口。
+- **视觉代理模型留空即自动选择**：`visionProxyModel` 默认值改为空字符串。留空时运行时自动从当前视觉模型列表中挑一个（排除主模型，避免递归），设置项因此变成"可选覆盖"而非"必填"。
+
+### 重构
+
+- **模型信息归一化收敛到 `src/models`**：新增 `registry.ts`（三源合并为 `ModelInfo`，单一事实来源）与 `chatInfo.ts`（`ModelInfo` → VS Code 条目 / 请求体配置），`index.ts` 作为统一出口。此前 `models.ts` 与 `provideModel.ts` 各写了一份思考档位枚举、上下文比例、输出上限兜底逻辑，`provider.ts` 还要自己做 `getBuiltInModelConfig ?? getAutoDiscoveredModelConfig` 的两级回退；现在全部只有一份实现，其他模块统一 `import { … } from "../models"`。
+- **视觉能力兜底表去重**：`visionModels.ts` 里的 `HARDCODED_VISION` 与 `models.ts` 的 `BUILT_IN_MODELS[].vision` 是同一份数据，已删除前者。`resolveVisionCapability(apiMeta, devEntry)` 现在是纯解析器（平台标记 → models.dev → 未知按纯文本处理），不再持有模型表。
+- **models.dev 补充层此前实际从未生效**：models.dev 的键全小写（`z-ai/glm-4.5`、`deepseek/deepseek-chat`），而平台模型 ID 首字母大写（`GLM-5.3-Flash`、`DeepSeek-V4-Flash`），原查找是大小写敏感的精确匹配 + 后缀匹配，因此**永远查不到**，所有模型都直接落到"未知 → 纯文本"。现改为大小写不敏感索引（全 ID / 短 ID 双份小写表），并删除 O(n) 的模糊后缀匹配——模糊匹配一旦命中错误条目，会把纯文本模型误判为视觉模型，导致图片直发被平台 400 拒绝。
+- **视觉判定误判代价不对称**：把纯文本模型（如 `GLM-5.3-Flash`）误判为视觉 → 图片直接进请求体 → 平台硬失败；把视觉模型误判为纯文本 → 图片走 `ask_image` 代理 → 仍能正常回答。因此判定链一律"宁可漏判"，未知模型按纯文本处理。
+- **`providers` 存在但缺 `vision` 字段不再被当成"明确不支持视觉"**：原实现用 `providers.length > 0` 判断有无信号，`providers: [{ streaming: true }]` 这类条目会被折叠成 `supports_vision: false`，从而覆盖 models.dev 的正确信息。现改为只有 `typeof providers[0].vision === "boolean"` 才算平台表态，否则返回 `undefined` 继续下探。
+- **models.dev 的 `modalities.input` 优先于 `attachment`**：`attachment: true` 只表示"接受文件上传"（可能仅 PDF），不能推出图片输入；现在先看 `modalities.input` 是否含 `image`，只有该字段缺失时才用 `attachment` 兜底。
+- **内置清单降级为纯离线兜底**：此前 `/v1/models` 成功时，内置清单仍会参与字段合并（思考档位、`extra`、上下文、输出上限等），平台下架或调整模型后旧值会继续生效。现在内置清单**只在 `/v1/models` 获取失败时**整份接管列表；API 成功时模型信息完全来自平台 + models.dev，字段级优先级为 `/v1/models` > models.dev > 代码默认值。`getModelInfo()` 在注册表已由 API 填充时，对平台未返回的模型 ID 返回 `undefined`（不再回落到内置清单）。
+- **`/v1/models` 视觉标记改为三态**：`architecture.input_modalities` / `providers[].vision` 缺失时不再折叠成 `false`，而是返回 `undefined` 让判定链继续下探 models.dev，避免"平台没给标记 → 全部模型被当成纯文本"。
+- **提交消息生成复用注册表**：不再单独 `await getAnthropicSupportedModelIds()` 探测协议，改为 `ensureModelRegistry()` + 同步 `getAnthropicModelIds()`；模型配置也走 `getModelInfo` / `toProviderModelItem`，自动发现的模型同样可用。
+
+### 已知限制
+
+- **models.dev 描述的是上游模型，不是本平台部署**：同一上游模型在不同平台/不同量化版本上的多模态能力可能被裁剪，因此 models.dev 只作补充、不覆盖 `/v1/models`。实测反例：`GLM-5.3-Flash` 在 models.dev 中 `modalities.input=["text","image","video","pdf"]`，而 AMD `/v1/models` 返回 `input_modalities=["text"]`（平台裁剪了视觉能力）。判定链以平台为准，结果正确。
+- **平台完全不给视觉信号时仍可能误判**：若 `/v1/models` 既无 `architecture.input_modalities` 也无 `providers[].vision`，而 models.dev 说支持视觉、实际却不支持，则图片会直发并被平台 400 拒绝。当前**无自愈**——`DEFAULT_ERROR_RULES` 不覆盖 400，`rotation.ts` 会直接抛出原始错误，下次仍会重犯。AMD 平台不属于此情形（10 个模型全部有 `input_modalities` 表态），故暂不实现补强。若移植到不返回能力标记的平台，可考虑：① 错误驱动学习（识别"图片不被支持"类 400，记入会话级 negative cache 并降级为 `ask_image` 代理，零额外配额，推荐）；② `supported_parameters` 含 `vision`/`image`/`image_url` 也算平台表态；③ 主动探测（1×1 PNG 最小请求，权威但花配额，AMD 每天仅 $1 额度，不建议）。详见 `AGENTS.md` §4.5。
+
 ## [2.0.1] - 2026-10-22
 
 ### 修复

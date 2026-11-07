@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import type { ProvideLanguageModelChatResponseOptions } from "vscode";
 import type { ModelPreset, ProviderModelItem } from "../core/types";
-import { getAnthropicModelIds } from "../models/provideModel";
+import { getAnthropicModelIds } from "../models";
 import { getRequestedReasoningEffort } from "./errors";
 
 /**
