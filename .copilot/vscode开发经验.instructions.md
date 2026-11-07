@@ -75,7 +75,7 @@ description: "Use when: 需要操作浏览器（市场上传/审核、GitHub Rel
 
 | 项目 | 规则 |
 |------|------|
-| **打包输出名** | 固定为 **`<name>-<version>.vsix`**（如 `amd-tokenfactory-copilot-1.0.0.vsix`）：`npx vsce package -o amd-tokenfactory-copilot-<version>.vsix`。**不要用 vsce 默认的 `extension.vsix`** |
+| **打包输出名** | 固定为 **`<name>-<version>.vsix`**（如 `amd-tokenfactory-copilot-1.0.0.vsix`）：`npx @vscode/vsce package -o amd-tokenfactory-copilot-<version>.vsix`。**不要用 vsce 默认的 `extension.vsix`** |
 | **name/version 来源** | `package.json` 的 `name` 字段（`amd-tokenfactory-copilot`）+ `version` 字段（如 `1.0.0`） |
 | **GitHub Release 附件** | 上传 `<name>-<version>.vsix`，下载链接即 `.../releases/download/<tag>/<name>-<version>.vsix` |
 | **tag 格式** | `vX.Y.Z`（如 `v1.0.0`），指向对应版本提交 |
@@ -96,8 +96,8 @@ git ls-remote --tags origin | Select-String "<version>"
 # 3. 打包并验证内容（输出名必须为 <name>-<version>.vsix；先删 out/ 避免 tsc 孤儿文件残留）
 Remove-Item -Recurse -Force out
 npm run compile
-npx vsce package -o amd-tokenfactory-copilot-<version>.vsix
-npx vsce ls   # 确认 out/ 齐全、无 src/ 泄漏
+npx @vscode/vsce package -o amd-tokenfactory-copilot-<version>.vsix
+npx @vscode/vsce ls --tree   # 确认 out/ 齐全、无 src/ 泄漏、含 node_modules/@microsoft/tiktokenizer
 # 4. 打 tag 并推送（确保 tag 指向含完整实现的提交）
 git tag v<version> && git push origin v<version>
 # 5. 发布（浏览器流程）
@@ -108,6 +108,8 @@ git tag v<version> && git push origin v<version>
 > ⚠️ **教训**：曾只提交 `package.json`+`CHANGELOG.md` 就 push tag，导致 tag 指向不含实现源码的提交（`src/` 多个文件漏提交）。**必须先 `git status` 确认所有源码已提交**，再打 tag 发布。
 
 > ⚠️ **本扩展专属教训（2026-09-06）**：tsc **不会自动清理 out/ 孤儿产物**——删除源码模块（如 gitCommit/、tokenizer/）后，out/ 里仍残留旧 js 文件并被 vsce 打进包。**每次打包前先 `Remove-Item -Recurse -Force out` 再 compile**。
+
+> ⚠️ **vsce 包名已迁移（2026-11-08 实测）**：`vsce` 旧包已废弃，必须用 **`npx @vscode/vsce`**（当前 3.9.2，最新 4.1.0）。`npx vsce` 会拉到废弃包或报错。`vsce ls` 的 `--tree` 参数在 Windows 控制台输出为 GBK 乱码，核对清单时用 `| Out-File -Encoding utf8 tmp.txt` 再 `Get-Content` 读取，或直接 `Select-String` 过滤关键字。
 
 ### 1.5 常见问题排查
 
