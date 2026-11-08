@@ -2,6 +2,12 @@
 
 本文件记录 amd-tokenfactory-copilot 的用户可感知变更。格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/),版本号遵循语义化版本(新功能升 y,修 bug/调整升 z)。
 
+## [2.0.4] - 2026-11-09
+
+### 修复
+
+- **思考档位选择器顺序错乱（`minimal` 排在 `max` 之后）**：模型选择器的档位选项按 `models.ts` 的 `supportedReasoningEfforts` 数组顺序渲染（`registry.ts` 原样透传，不做排序），此前 `minimal` 被追加在数组末尾，导致选择器显示为「禁用思考 / 低 / 中 / 高 / 超高 / 极高 / 最小」——最低强度跑到最高强度右边了。现按强度升序重排为 `["minimal", "low", "medium", "high", "xhigh", "max"]`，涉及 `DeepSeek-V4.1-Flash` / `DeepSeek-V4-Flash` / `Gemma-4-31B-IT` / `MiMo-V2.6-Flash` 四个模型；`probe-reasoning-efforts.mjs` 的 `ALL_EFFORTS` 同步改为升序（探测输出的 `models.ts` 建议顺序随之正确）。
+
 ## [2.0.3] - 2026-11-08
 
 ### 修复
