@@ -118,7 +118,7 @@
 | 维度 | 标准 OpenAI/DeepSeek | AMD TokenFactory |
 |------|---------------------|------------------|
 | 开关参数 | `thinking: {type: enabled/disabled}` | ❌ **不支持** → 400 `unsupported_parameter` |
-| 深度控制 | `reasoning_effort` | ✅ `reasoning_effort`：`none`/`low`/`medium`/`high`/`xhigh`/`max`/`minimal`（**支持范围按模型不同**，见下） |
+| 深度控制 | `reasoning_effort` | ✅ `reasoning_effort`：`none`/`minimal`/`low`/`medium`/`high`/`xhigh`/`max`（**支持范围按模型不同**，见下） |
 | 思考内容字段 | `reasoning_content` | ✅ **`reasoning`**（`reasoning_content` 恒为 `null`） |
 | 是否可关 | 可关 | **按模型不同**（2026-11-09 实测）：大部分可控制（none 不思考 / 高档位思考），仅 GLM-5.3-Flash 恒思考（none 也产 reasoning，复杂题下空答案） |
 
@@ -127,9 +127,9 @@
 | 模型 | 支持档位 | 思考行为 |
 |------|---------|---------|
 | `Qwen3.8-27B` / `Qwen3.8-Flash-Next` | `none`/`low`/`medium`/`xhigh`（`high`/`max`/`minimal` → 400） | 可控制（none 不思考 rt=0 / xhigh 思考，2026-11-09 实测） |
-| `DeepSeek-V4-Flash` / `DeepSeek-V4.1-Flash` | 全支持（none/low/medium/high/xhigh/max/minimal） | 可控制（high 产 reasoning，none 不产） |
+| `DeepSeek-V4-Flash` / `DeepSeek-V4.1-Flash` | 全支持（none/minimal/low/medium/high/xhigh/max） | 可控制（high 产 reasoning，none 不产） |
 | `GLM-5.3-Flash` | none/low/medium/high/xhigh/max（minimal 未确认） | **恒思考**（none 也产 reasoning，复杂题下空答案） |
-| `Gemma-4-31B-IT` / `MiMo-V2.6-Flash` | 全支持（none/low/medium/high/xhigh/max/minimal） | 未确认 |
+| `Gemma-4-31B-IT` / `MiMo-V2.6-Flash` | 全支持（none/minimal/low/medium/high/xhigh/max） | 未确认 |
 | `MiniCPM5-2B` | `low`/`medium`/`high`（none/xhigh/max/minimal → 400） | 未确认 |
 | `MiniCPM-V-4.7-1B` / `MiniCPM-V-4.7-35B-A3B` | 未测全（响应超时：单请求 300s 无返回，模型当前不可用或排队极慢） | 未确认 |
 

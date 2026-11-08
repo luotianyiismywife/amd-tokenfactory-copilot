@@ -60,7 +60,7 @@
 | 维度 | 标准 OpenAI/DeepSeek | AMD TokenFactory |
 |------|---------------------|------------------|
 | 开关参数 | `thinking: {type: enabled/disabled}` | ❌ **不支持**（OpenAI 端点任何形式均 400；Anthropic 端点带 `budget_tokens` 时 400，不带则被忽略） |
-| 深度控制 | `reasoning_effort` | ✅ `reasoning_effort`：`none`/`low`/`medium`/`high`/`xhigh`/`max`/`minimal`（**支持范围按模型不同**） |
+| 深度控制 | `reasoning_effort` | ✅ `reasoning_effort`：`none`/`minimal`/`low`/`medium`/`high`/`xhigh`/`max`（**支持范围按模型不同**） |
 | 思考内容字段（OpenAI） | `reasoning_content` | ✅ **`reasoning`**（`reasoning_content` 恒为 `null`） |
 | 思考内容字段（Anthropic） | `thinking` 块 | ✅ 原生返回 `thinking` 内容块（`blocks=[thinking,text]`） |
 | 是否可关 | 可关 | **按模型不同**（2026-11-09 实测）：大部分可控制（none 不思考 / 高档位思考），仅 GLM-5.3 恒思考（none 也产 reasoning） |

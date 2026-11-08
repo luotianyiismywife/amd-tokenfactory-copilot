@@ -19,7 +19,7 @@
  *
  * Options:
  *   --models <id1,id2,...>   只探测指定模型（默认全部 chat 模型）
- *   --efforts <e1,e2,...>    只探测指定档位（默认 none/low/medium/high/xhigh/max/minimal）
+ *   --efforts <e1,e2,...>    只探测指定档位（默认 none/minimal/low/medium/high/xhigh/max）
  *   --gap-ms <n>             请求间隔（默认 3000ms，匹配平台 RPM 20/min 限制）
  *   --timeout-ms <n>         单请求超时（默认 300000ms；AMD 首字延迟可达 2 分钟，
  *                            慢模型如 MiniCPM-V 需长超时，否则 undici headers 超时崩溃）
@@ -34,7 +34,7 @@ const API_BASE_URL = "https://developer.amd.com.cn/radeon/api/v1/";
 const MODELS_TS_PATH = fileURLToPath(new URL("../../src/models/models.ts", import.meta.url));
 const API_KEY_ENV = "PROVIDER_API_KEY";
 
-const ALL_EFFORTS = ["none", "low", "medium", "high", "xhigh", "max", "minimal"];
+const ALL_EFFORTS = ["none", "minimal", "low", "medium", "high", "xhigh", "max"];
 
 // ── CLI 解析 ──
 
