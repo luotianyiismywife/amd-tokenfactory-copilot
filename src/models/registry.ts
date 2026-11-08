@@ -139,20 +139,18 @@ function mergeModel(
     // 思考能力：平台标记优先，models.dev 兜底。
     const reasoning = apiMeta?.supports_reasoning ?? devEntry?.reasoning ?? false;
 
-    // 思考档位按模型区分（2026-11-09 实测）：
-    //   Qwen3.8 系列（Qwen3.8-27B / Qwen3.8-Flash-Next）：支持 none/low/medium/xhigh，
-    //     **不支持 high/max/minimal**（400 "Unexpected reasoning effort high. Supported
-    //     types are xhigh (default), medium, and low."）→ 默认档位 xhigh。
-    //   其余模型（DeepSeek-V4 / GLM-5.3 等）：支持 none/low/medium/high/xhigh/max/minimal
-    //     → 默认档位 high。
-    //
-    // ⚠️ 平台 `/v1/models` **没有**返回具体档位列表（`supported_parameters` 只含
-    // `reasoning_effort` 布尔标记，见 apiModelList.ts）。因此这里按模型 ID 兜底。
-    // 若平台将来返回 `supported_reasoning_efforts` 字段，应优先读它（改这里 + chatInfo
-    // 的枚举构建），模型 ID 判断降级为兜底。
-    const qwen38 = modelId.startsWith("Qwen3.8");
-    const supportedReasoningEfforts = reasoning ? (qwen38 ? ["low", "medium", "xhigh"] : ["low", "medium", "high"]) : undefined;
-    const defaultReasoningEffort = reasoning ? (qwen38 ? "xhigh" : "high") : undefined;
+    // 思考档位：平台 `/v1/models` 与 models.dev **都不返回**具体档位列表
+    // （只给"是否支持 reasoning_effort"的布尔标记，见 apiModelList.ts / modelsDev.ts）。
+    // 因此档位从内置清单读（`models.ts` 是唯一手工维护处，2026-11-09 实测结论
+    // 已写入：Qwen3.8 系列 → ["low","medium","xhigh"] + xhigh，其余 → high）。
+    // 若平台将来返回 `supported_reasoning_efforts` 字段，应优先读它，内置清单降级为兜底。
+    const builtin = getBuiltInModelDef(modelId);
+    const supportedReasoningEfforts = reasoning
+        ? (builtin?.supportedReasoningEfforts ?? ["low", "medium", "high"])
+        : undefined;
+    const defaultReasoningEffort = reasoning
+        ? (builtin?.defaultReasoningEffort ?? "high")
+        : undefined;
 
     return {
         id: modelId,
