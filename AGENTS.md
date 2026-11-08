@@ -289,6 +289,18 @@ EOS —— **HTTP 200、无 error、`content` 为空、耗时仅 ~400ms**。
 三轮都没有 `vision.call-failed`（因为没抛错，只是返回空串），主模型只能回复
 “图片识别工具暂时没有返回内容”，用户完全无从排查。
 
+#### ⚠️ 旧版布尔值残留坑（2026-11-09 实测定位）
+
+`visionProxyThinking` 在 2.0.2 及之前是 **boolean**（`true`=high / `false`=low），
+2.0.3 改为自由字符串后，用户设置里可能残留 `true`/`false`。`resolveVisionReasoningEffort`
+此前直接 `configured.trim()` —— 布尔值没有 `.trim()`，抛
+`(configured ?? "low").trim is not a function` → `vision.call-failed` → 视觉代理
+完全失效（日志证据：`window1` 03:09，GLM-5.3-Flash 三轮 ask_image 全部失败）。
+
+**修复**：`resolveVisionReasoningEffort` 与 `visionProxyCommand.ts` 的 `currentEffort`
+读取都改为 `typeof configured === "string" ? configured.trim() : ""`——布尔残留按
+"留空 = 模型默认"处理，不再崩溃。
+
 **修复**：
 1. 视觉代理改为复用 `executeApiRequest`（不再嵌套重入），`reasoning_effort` 由
    `amdTokenFactory.visionProxyThinking` 决定，默认 `"low"`（安全且较快）。

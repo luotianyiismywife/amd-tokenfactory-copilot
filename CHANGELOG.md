@@ -8,6 +8,7 @@
 
 - **视觉代理静默返回空答案（ask_image 完全失效）**：旧实现默认给视觉模型发 `reasoning_effort: "none"`（想省掉思考、加快图片描述）。但 AMD 的 **Qwen3.8 系列是模型固有思考**，思考被抑制后它直接输出 EOS —— HTTP 200、无 error、`content` 为空、耗时仅约 400ms。日志实测（06:55 会话）：三轮 `vision.intercepted` 对应的嵌套 `Qwen3.8-27B` 请求分别 393 / 461 / 410 ms 完成，全部无 `vision.call-failed`，主模型只能回复"图片识别工具暂时没有返回内容"，用户完全无从排查。现改为：视觉代理**复用对话的请求链路**（`executeApiRequest`），`reasoning_effort` 由 `amdTokenFactory.visionProxyThinking` 决定（默认 `low`，安全且较快），不再走嵌套重入、不再硬编码 `none`。同时 `sendVisionRequest()` 在 `content` 为空时抛错（`vision.empty-answer`），失败原因会写进 tool result（`[Image query failed: …]`）而不是笼统的 `[Image query unavailable]`，空串兜底为 `[Image query returned no text from <model>]` —— 绝不让空串冒充成功答案。
 - **`thinking` 参数是死代码**：旧 `buildVisionOptions()` 里的 `thinking: { type: "disabled" }` 从未被转发到上游（`prepareRequestBody` 只读 `modelOptions.stop`，AMD 该参数本身 400），`getRequestedReasoningEffort` 也只认 `thinking.type === false` 这个布尔值，字符串 `"disabled"` 不匹配。已随重构删除，避免误导。
+- **旧版布尔值残留导致视觉代理崩溃**：`visionProxyThinking` 在 2.0.2 及之前是 boolean（`true`=high / `false`=low），2.0.3 改为自由字符串后，用户设置里残留的 `true`/`false` 让 `resolveVisionReasoningEffort` 的 `configured.trim()` 抛 `(configured ?? "low").trim is not a function` → `vision.call-failed` → 视觉代理完全失效（日志实测：GLM-5.3-Flash 三轮 ask_image 全部失败）。修复：`resolveVisionReasoningEffort` 与命令的 `currentEffort` 读取都改为 `typeof configured === "string" ? configured.trim() : ""`——布尔残留按"留空 = 模型默认"处理，不再崩溃。
 
 ### 重构
 

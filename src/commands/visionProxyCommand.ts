@@ -110,7 +110,9 @@ export async function selectVisionProxyModel(secrets: vscode.SecretStorage): Pro
     // 都不返回档位列表，因此这里按模型从内置清单读。
     const pickedInfo = candidates.find((c) => c.id === picked.modelId);
     const supported = pickedInfo?.supportedReasoningEfforts ?? [];
-    const currentEffort = (config.get<string>(THINKING_SETTING_KEY, "") ?? "").trim();
+    // ⚠️ 兼容旧版布尔值残留（2.0.2 及之前 visionProxyThinking 是 boolean）。
+    const rawEffort = config.get<unknown>(THINKING_SETTING_KEY, "");
+    const currentEffort = typeof rawEffort === "string" ? rawEffort.trim() : "";
     const effortItems: vscode.QuickPickItem[] = [
         {
             label: l10n("Auto (model default)"),

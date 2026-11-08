@@ -59,11 +59,14 @@ export interface VisionProxyContext {
  * 因此支持范围与默认档位从内置清单（`models.ts`）读，见 AGENTS.md §5.6。
  */
 function resolveVisionReasoningEffort(visionModelId: string): string {
-    const configured = vscode.workspace.getConfiguration().get<string>("amdTokenFactory.visionProxyThinking", "");
-    const value = (configured ?? "").trim().toLowerCase();
+    const configured = vscode.workspace.getConfiguration().get<unknown>("amdTokenFactory.visionProxyThinking", "");
+    // ⚠️ 兼容旧版布尔值残留：2.0.2 及之前 visionProxyThinking 是 boolean
+    // （true=high / false=low），用户设置里可能残留 true/false。布尔值按
+    // "留空 = 模型默认"处理（不再 .trim() 崩溃，2026-11-09 实测修复）。
+    const value = typeof configured === "string" ? configured.trim().toLowerCase() : "";
     const info = getModelInfo(visionModelId);
     const supported = info?.supportedReasoningEfforts ?? [];
-    // 设置留空 / auto → 不发送 reasoning_effort（模型默认思考行为）。
+    // 设置留空 / auto / 旧版布尔残留 → 不发送 reasoning_effort（模型默认思考行为）。
     if (!value || value === "auto") {
         return "auto";
     }
