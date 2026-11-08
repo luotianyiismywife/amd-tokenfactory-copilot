@@ -20,7 +20,9 @@
  * Options:
  *   --models <id1,id2,...>   只探测指定模型（默认全部 chat 模型）
  *   --efforts <e1,e2,...>    只探测指定档位（默认 none/low/medium/high/xhigh/max/minimal）
- *   --gap-ms <n>             请求间隔（默认 1200ms，避免并发限流）
+ *   --gap-ms <n>             请求间隔（默认 3000ms，匹配平台 RPM 20/min 限制）
+ *   --timeout-ms <n>         单请求超时（默认 300000ms；AMD 首字延迟可达 2 分钟，
+ *                            慢模型如 MiniCPM-V 需长超时，否则 undici headers 超时崩溃）
  */
 
 import { readFileSync } from "node:fs";
@@ -37,13 +39,14 @@ const ALL_EFFORTS = ["none", "low", "medium", "high", "xhigh", "max", "minimal"]
 // ── CLI 解析 ──
 
 function parseArgs(argv) {
-    const args = { models: null, efforts: null, gapMs: 1200 };
+    const args = { models: null, efforts: null, gapMs: 3000, timeoutMs: 300000 };
     for (let i = 0; i < argv.length; i++) {
         const a = argv[i];
         if (a === "--api-key") args.apiKey = argv[++i];
         else if (a === "--models") args.models = argv[++i].split(",").map((s) => s.trim()).filter(Boolean);
         else if (a === "--efforts") args.efforts = argv[++i].split(",").map((s) => s.trim()).filter(Boolean);
-        else if (a === "--gap-ms") args.gapMs = Number(argv[++i]) || 1200;
+        else if (a === "--gap-ms") args.gapMs = Number(argv[++i]) || 3000;
+        else if (a === "--timeout-ms") args.timeoutMs = Number(argv[++i]) || 300000;
     }
     return args;
 }
@@ -123,6 +126,7 @@ for (const model of targetModels) {
                 max_tokens: 8,
                 reasoning_effort: effort,
             }),
+            signal: AbortSignal.timeout(args.timeoutMs),
         });
         if (r.ok) {
             ok.push(effort);

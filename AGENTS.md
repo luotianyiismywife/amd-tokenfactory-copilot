@@ -48,48 +48,30 @@
 
 ### 1.3 模型清单
 
-内置模型清单（`src/models/models.ts` 的 `BUILT_IN_MODELS`）与 **2026-10-21 `/v1/models` 实测对齐**（10 个 chat 模型，全部支持工具调用）：
+内置模型清单（`src/models/models.ts` 的 `BUILT_IN_MODELS`）与 `/v1/models` 实测对齐（10 个 chat 模型，全部支持工具调用）。
 
-| 模型 ID | 视觉 | 上下文 | 思考 |
-|---------|------|--------|------|
-| `DeepSeek-V4.1-Flash` | ✅ | 1M | 模型固有（实测 rt=0） |
-| `DeepSeek-V4-Flash` | ❌ | 1M | 模型固有（实测 rt=0） |
-| `Gemma-4-31B-IT` | ✅ | 256K | 模型固有 |
-| `GLM-5.3-Flash` | ❌ | 256K | 模型固有 |
-| `MiMo-V2.6-Flash` | ✅ | 1M | 模型固有 |
-| `MiniCPM5-2B` | ❌ | 128K | 模型固有 |
-| `MiniCPM-V-4.7-1B` | ✅ | 256K | 模型固有 |
-| `MiniCPM-V-4.7-35B-A3B` | ✅ | 256K | 模型固有 |
-| `Qwen3.8-27B` | ✅ | 256K | 模型固有（实测 rt≈150-800） |
-| `Qwen3.8-Flash-Next` | ✅ | 256K | 模型固有 |
-
-> **已退役**：`DeepSeek-V4-Flash-Vision-Exp`（2026-10-23 退役，已从清单移除）。
-> **非 chat 端点**（`Clef` / `d3` / `d3-flash` / `MinerU2.5-Pro` / `OmniVoice`）由 `apiModelList.ts` 过滤。
+> **模型 ID / 视觉 / 上下文 / 思考行为 / 档位支持范围**：见 [`.copilot/api-reference.md`](.copilot/api-reference.md)（实测记录）与 `src/models/models.ts`（唯一手工维护处）。AGENTS.md 不重复维护模型表，避免多处漂移。
+>
+> **已退役**：`DeepSeek-V4-Flash-Vision-Exp`（2026-10-23）、`Qwen3.8-Flash-Next`（2026-11-11）。
+> **非 chat 端点**（`Clef` / `d3` / `d3-flash` / `OmniVoice`）由 `apiModelList.ts` 过滤。
 
 ### 1.4 思考（深度思考）机制 —— **与标准 OpenAI/DeepSeek 不同**
 
 | 维度 | 标准 OpenAI/DeepSeek | AMD TokenFactory |
 |------|---------------------|------------------|
 | 开关参数 | `thinking: {type: enabled/disabled}` | ❌ **不支持**（OpenAI 端点任何形式均 400；Anthropic 端点带 `budget_tokens` 时 400，不带则被忽略） |
-| 深度控制 | `reasoning_effort` | ✅ `reasoning_effort`：`none`/`low`/`medium`/`high`/`xhigh`/`max`/`minimal`（**支持范围按模型不同**，见下） |
+| 深度控制 | `reasoning_effort` | ✅ `reasoning_effort`：`none`/`low`/`medium`/`high`/`xhigh`/`max`/`minimal`（**支持范围按模型不同**） |
 | 思考内容字段（OpenAI） | `reasoning_content` | ✅ **`reasoning`**（`reasoning_content` 恒为 `null`） |
 | 思考内容字段（Anthropic） | `thinking` 块 | ✅ 原生返回 `thinking` 内容块（`blocks=[thinking,text]`） |
-| 是否可关 | 可关 | ❌ **模型固有**：Qwen3.8 系列恒思考、DeepSeek-V4 系列恒不思考 |
+| 是否可关 | 可关 | **按模型不同**（2026-11-09 实测）：Qwen3.8 **可控制**（none 不思考 / xhigh 思考）、GLM-5.3 恒思考（none 也产 reasoning）、DeepSeek-V4 **可控制**（high 思考 / none 不思考） |
 
-**`reasoning_effort` 支持范围按模型不同（2026-11-09 实测）**：
-
-| 模型 | 支持的档位 | 默认 |
-|------|-----------|------|
-| `Qwen3.8-27B` / `Qwen3.8-Flash-Next` | `none`/`low`/`medium`/`xhigh`（**`high`/`max`/`minimal` → 400**） | `xhigh` |
-| `DeepSeek-V4-Flash` / `DeepSeek-V4.1-Flash` | `none`/`low`/`medium`/`high`/`xhigh`/`max`/`minimal`（全支持，2026-11-09 实测） | `high` |
-| `GLM-5.3-Flash` 等其余 | `none`/`low`/`medium`/`high`/`xhigh`/`max`（minimal 未实测确认） | `high` |
-
-> ⚠️ Qwen3.8 系列发 `reasoning_effort: "high"` 返回 400：`Unexpected reasoning effort high. Supported types are xhigh (default), medium, and low.` 因此档位数据**维护在** `models.ts`（`supportedReasoningEfforts` / `defaultReasoningEffort`，Qwen3.8 → `["low","medium","xhigh"]` + `xhigh`；DeepSeek 系列 → `["low","medium","high","xhigh","max","minimal"]` + `high`；其余 → `["low","medium","high"]` + `high`），`registry.ts` 的 `mergeModel` 经 `getBuiltInModelDef()` 读入 `ModelInfo`，消费方（命令档位框 / 视觉代理过滤 / 模型选择器枚举）统一经 `getModelInfo()` / `getVisionModelInfos()` 归一化读取。`visionProxyThinking` 是自由字符串（默认空 = 模型默认），档位选择在 `选择视觉代理模型` 命令里按模型动态加载，视觉代理发送时按模型过滤（用户选模型不支持的档位 → 回退模型默认）。详见 §4.6。
+> **各模型的档位支持范围与思考行为**：见 [`.copilot/api-reference.md`](.copilot/api-reference.md)（实测记录）与 `src/models/models.ts` 的 `supportedReasoningEfforts` / `defaultReasoningEffort`（唯一手工维护处）。AGENTS.md 不重复维护档位表。
 
 **实现要点**：
 - `OpenaiApi.prepareRequestBody` / `AnthropicApi.prepareRequestBody` **只发 `reasoning_effort`，绝不发 `thinking`**。
-- 用户选「禁用思考」→ 发 `reasoning_effort: "none"`（平台接受，不报错）。
+- 用户选「禁用思考」→ 发 `reasoning_effort: "none"`（平台接受，不报错；⚠️ GLM 恒思考模型仍产思考，复杂题下可能空答案）。
 - 思考深度**非确定性**（同参数重复 rt 波动），且可能受平台负载影响。
+- 档位数据**维护在** `models.ts`，`registry.ts` 的 `mergeModel` 经 `getBuiltInModelDef()` 读入 `ModelInfo`，消费方（命令档位框 / 视觉代理过滤 / 模型选择器枚举）统一经 `getModelInfo()` / `getVisionModelInfos()` 归一化读取。`visionProxyThinking` 是自由字符串（默认空 = 模型默认），档位选择在 `选择视觉代理模型` 命令里按模型动态加载，视觉代理发送时按模型过滤（用户选模型不支持的档位 → 回退模型默认）。详见 §4.6。
 
 ---
 
@@ -488,7 +470,7 @@ docs/                                     # 设计文档
 - [x] **不支持 Responses 协议**（`/v1/responses` 未实现）
 - [x] **不支持 `thinking` 参数**（400）→ 用 `reasoning_effort`
 - [x] 思考内容在 **`reasoning`** 字段（OpenAI）/ **`thinking` 块**（Anthropic）
-- [x] 思考是**模型固有属性**（Qwen3.8 恒思考、DeepSeek-V4 恒不思考）
+- [x] 思考行为**按模型不同**（2026-11-09 实测）：Qwen3.8 / DeepSeek-V4 **可控制**（none 不思考 / 高档位思考）、GLM-5.3 恒思考（none 也产 reasoning）
 - [x] 流式 SSE 标准（`data: {...}` / `[DONE]`）
 - [x] 无账号信息端点（余额无意义）
 - [x] 限流特征：401（无效 key）/ 402（余额不足）/ 429（限流）/ 500（内部错误）/ 502/503/504（网关）

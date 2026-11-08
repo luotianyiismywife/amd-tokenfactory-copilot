@@ -81,18 +81,22 @@ export function getMaxInputTokensRatio(): number {
  *
  * 与 2026-10-21 /models 实测对齐（10 个 chat 模型，全部支持工具调用）。
  * 非 chat 端点（Clef / d3 / MinerU2.5-Pro / OmniVoice 等）已过滤。
- * DeepSeek-V4-Flash-Vision-Exp 将于 2026-10-23 退役，已移除。
+ * DeepSeek-V4-Flash-Vision-Exp 已于 2026-10-23 退役，已移除。
+ * Qwen3.8-Flash-Next 将于 2026-11-11 退役。
  *
- * 思考档位：AMD 用 `reasoning_effort`（none/low/medium/high）控制深度，
- * **不支持 `thinking` 参数**。思考是模型固有属性——Qwen3.8 系列恒产出思考、
- * DeepSeek-V4 系列恒不产出，档位只影响深度且非确定性。
+ * 思考档位：AMD 用 `reasoning_effort`（none/low/medium/high/xhigh/max/minimal）控制深度，
+ * **不支持 `thinking` 参数**。思考行为按模型不同（2026-11-09 实测）：
+ * Qwen3.8 可控制（none 不思考 / xhigh 思考）、GLM-5.3 恒思考（none 也产 reasoning）、
+ * DeepSeek-V4 可控制（high 思考 / none 不思考）。
+ * 档位支持范围按模型不同（Qwen3.8 仅 low/medium/xhigh，high 会 400），
+ * 支持范围与默认档位见下方各模型定义；实测记录见 .copilot/api-reference.md。
  */
 export const BUILT_IN_MODELS: BuiltInModelDef[] = [
     { baseId: "DeepSeek-V4.1-Flash", displayName: "DeepSeek-V4.1-Flash", vision: true, thinkingMode: "switchable", supportedReasoningEfforts: ["low", "medium", "high", "xhigh", "max", "minimal"], defaultReasoningEffort: "high", contextLength: 1048576, maxTokens: 32768 },
     { baseId: "DeepSeek-V4-Flash", displayName: "DeepSeek-V4-Flash", vision: false, thinkingMode: "switchable", supportedReasoningEfforts: ["low", "medium", "high", "xhigh", "max", "minimal"], defaultReasoningEffort: "high", contextLength: 1048576, maxTokens: 32768 },
-    { baseId: "Gemma-4-31B-IT", displayName: "Gemma 4 31B", vision: true, thinkingMode: "switchable", supportedReasoningEfforts: ["low", "medium", "high"], defaultReasoningEffort: "high", contextLength: 262144, maxTokens: 32768 },
+    { baseId: "Gemma-4-31B-IT", displayName: "Gemma 4 31B", vision: true, thinkingMode: "switchable", supportedReasoningEfforts: ["low", "medium", "high", "xhigh", "max", "minimal"], defaultReasoningEffort: "high", contextLength: 262144, maxTokens: 32768 },
     { baseId: "GLM-5.3-Flash", displayName: "GLM-5.3-Flash", vision: false, thinkingMode: "switchable", supportedReasoningEfforts: ["low", "medium", "high"], defaultReasoningEffort: "high", contextLength: 262144, maxTokens: 32768 },
-    { baseId: "MiMo-V2.6-Flash", displayName: "MiMo-V2.6-Flash", vision: true, thinkingMode: "switchable", supportedReasoningEfforts: ["low", "medium", "high"], defaultReasoningEffort: "high", contextLength: 1048576, maxTokens: 32768 },
+    { baseId: "MiMo-V2.6-Flash", displayName: "MiMo-V2.6-Flash", vision: true, thinkingMode: "switchable", supportedReasoningEfforts: ["low", "medium", "high", "xhigh", "max", "minimal"], defaultReasoningEffort: "high", contextLength: 1048576, maxTokens: 32768 },
     { baseId: "MiniCPM5-2B", displayName: "MiniCPM5-2B", vision: false, thinkingMode: "switchable", supportedReasoningEfforts: ["low", "medium", "high"], defaultReasoningEffort: "high", contextLength: 131072, maxTokens: 32768 },
     { baseId: "MiniCPM-V-4.7-1B", displayName: "MiniCPM-V-4.7-1B", vision: true, thinkingMode: "switchable", supportedReasoningEfforts: ["low", "medium", "high"], defaultReasoningEffort: "high", contextLength: 262144, maxTokens: 32768 },
     { baseId: "MiniCPM-V-4.7-35B-A3B", displayName: "MiniCPM-V-4.7-35B-A3B", vision: true, thinkingMode: "switchable", supportedReasoningEfforts: ["low", "medium", "high"], defaultReasoningEffort: "high", contextLength: 262144, maxTokens: 32768 },
