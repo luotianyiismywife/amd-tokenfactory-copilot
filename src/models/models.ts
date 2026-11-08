@@ -86,8 +86,7 @@ export function getMaxInputTokensRatio(): number {
  *
  * 思考档位：AMD 用 `reasoning_effort`（none/low/medium/high/xhigh/max/minimal）控制深度，
  * **不支持 `thinking` 参数**。思考行为按模型不同（2026-11-09 实测）：
- * Qwen3.8 可控制（none 不思考 / xhigh 思考）、GLM-5.3 恒思考（none 也产 reasoning）、
- * DeepSeek-V4 可控制（high 思考 / none 不思考）。
+ * 大部分模型可控制（none 不思考 / 高档位思考），仅 GLM-5.3 恒思考（none 也产 reasoning）。
  * 档位支持范围按模型不同（Qwen3.8 仅 low/medium/xhigh，high 会 400），
  * 支持范围与默认档位见下方各模型定义；实测记录见 .copilot/api-reference.md。
  */

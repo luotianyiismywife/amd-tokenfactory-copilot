@@ -63,7 +63,7 @@
 | 深度控制 | `reasoning_effort` | ✅ `reasoning_effort`：`none`/`low`/`medium`/`high`/`xhigh`/`max`/`minimal`（**支持范围按模型不同**） |
 | 思考内容字段（OpenAI） | `reasoning_content` | ✅ **`reasoning`**（`reasoning_content` 恒为 `null`） |
 | 思考内容字段（Anthropic） | `thinking` 块 | ✅ 原生返回 `thinking` 内容块（`blocks=[thinking,text]`） |
-| 是否可关 | 可关 | **按模型不同**（2026-11-09 实测）：Qwen3.8 **可控制**（none 不思考 / xhigh 思考）、GLM-5.3 恒思考（none 也产 reasoning）、DeepSeek-V4 **可控制**（high 思考 / none 不思考） |
+| 是否可关 | 可关 | **按模型不同**（2026-11-09 实测）：大部分可控制（none 不思考 / 高档位思考），仅 GLM-5.3 恒思考（none 也产 reasoning） |
 
 > **各模型的档位支持范围与思考行为**：见 [`.copilot/api-reference.md`](.copilot/api-reference.md)（实测记录）与 `src/models/models.ts` 的 `supportedReasoningEfforts` / `defaultReasoningEffort`（唯一手工维护处）。AGENTS.md 不重复维护档位表。
 
