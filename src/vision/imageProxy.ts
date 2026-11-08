@@ -39,9 +39,9 @@ export interface VisionProxyContext {
 /**
  * 读取 `amdTokenFactory.visionProxyThinking` 设置，解析为 `reasoning_effort` 值。
  *
- * 设置项是枚举：`auto` / `none` / `low` / `medium` / `high` / `max`。
+ * 设置项是枚举：`auto` / `none` / `low` / `medium` / `high` / `xhigh` / `max`。
  *
- * ⚠️ AMD 平台**没有** `auto` 档位（合法值 none/low/medium/high/max/minimal）——
+ * ⚠️ AMD 平台**没有** `auto` 档位（合法值 none/low/medium/high/xhigh/max/minimal）——
  * `auto` 是给下游平台预留的语义：有 auto 的平台直接透传，没有的按"不发送
  * reasoning_effort"处理（让模型用自己的默认思考行为）。该语义在
  * `apiDispatch.ts` 的 `reasoningEffortOverride` 处理。
@@ -53,6 +53,10 @@ export interface VisionProxyContext {
  * （400 "Unexpected reasoning effort high. Supported types are xhigh (default),
  * medium, and low."），支持 xhigh。若用户选了模型不支持的档位，回退到该模型的
  * 默认档位（Qwen3.8 → xhigh，其余 → high）。
+ *
+ * 档位来源链：**用户设置 → 内置清单（支持范围过滤 + 默认档位）→ 上游请求体**。
+ * 平台 `/v1/models` 与 models.dev 都不返回具体档位列表（只给布尔标记），
+ * 因此支持范围与默认档位从内置清单（`models.ts`）读，见 AGENTS.md §5.6。
  */
 function resolveVisionReasoningEffort(visionModelId: string): string {
     const configured = vscode.workspace.getConfiguration().get<string>("amdTokenFactory.visionProxyThinking", "low");

@@ -534,6 +534,36 @@ AMD 平台当前**不属于**此情形（`/v1/models` 明确返回 `architecture
 2. **`supported_parameters` 兜底**（通用脚手架改进）：`normalizeModelEntry` 里若 `supported_parameters` 含 `vision` / `image` / `image_url`，也算平台表态。AMD 不返回这些，对其他平台有用。
 3. **主动探测**（权威但花配额）：首次遇到"平台无信号 + models.dev 说支持"时发 1×1 PNG 最小请求，看 200/400，结果缓存到 `globalState`。AMD 每天仅 $1 额度，**不建议**。
 
+### 4.6 模型信息降级链（设计决策）
+
+**模型信息统一按「数据源 → 归一化注册表 → 适配器」分层，字段级降级链为：**
+
+```
+/v1/models（平台真值）  >  models.dev（上游补充）  >  内置清单（离线兜底）  >  代码默认值
+```
+
+但**不同字段的降级链终点不同**，取决于平台是否返回该字段：
+
+| 字段 | 降级链 | 说明 |
+|------|--------|------|
+| 上下文 / 输出上限 / 视觉 / 工具 / 思考（布尔） | `/v1/models` → models.dev → 代码默认值 | 平台返回真值，models.dev 只补缺字段；**内置清单不参与**（API 成功时旧值不覆盖平台） |
+| **思考档位列表**（`supportedReasoningEfforts` / `defaultReasoningEffort`） | **只从内置清单读** | 平台 `/v1/models` 与 models.dev **都不返回**具体档位列表（只给"是否支持 reasoning_effort"的布尔标记，2026-11-09 实测）。档位是**平台部署级知识**（Qwen3.8 在 AMD 上被裁剪成 xhigh/medium/low），只能实测 + 手写进 `models.ts` |
+
+**为什么思考档位不参与通用降级链**：`/v1/models` 的 `supported_parameters` 只含 `reasoning_effort` 布尔标记，models.dev 的 `reasoning` 也是布尔——两个数据源都无法回答"支持哪些档位"。档位范围只能通过**实测**（发请求看 400）确定，结论写死在 `models.ts`（唯一手工维护处）。`registry.ts` 的 `mergeModel` 从 `getBuiltInModelDef(modelId)` 读档位，内置清单没有该模型时才用默认 `["low","medium","high"]` + `high`。
+
+**`amdTokenFactory.visionProxyThinking` 的思考等级来源链**：
+
+```
+用户设置（auto/none/low/medium/high/xhigh/max，默认 low）
+  → resolveVisionReasoningEffort(visionModelId)（vision/imageProxy.ts）
+      → getModelInfo(visionModelId).supportedReasoningEfforts（来自内置清单）
+          ├─ 用户选的档位在支持列表里 → 直接透传
+          └─ 不支持 → 回退 defaultReasoningEffort（也来自内置清单）
+  → reasoningEffortOverride（apiDispatch.ts）→ prepareRequestBody → 上游请求体
+```
+
+> 若平台将来返回 `supported_reasoning_efforts` 字段，应优先读它（改 `registry.ts` + `chatInfo.ts` 的枚举构建），内置清单降级为兜底——代码注释已注明。
+
 ---
 
 ## 5. 函数定义大全
