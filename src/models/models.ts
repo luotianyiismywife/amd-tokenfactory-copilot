@@ -88,8 +88,8 @@ export function getMaxInputTokensRatio(): number {
  * DeepSeek-V4 系列恒不产出，档位只影响深度且非确定性。
  */
 export const BUILT_IN_MODELS: BuiltInModelDef[] = [
-    { baseId: "DeepSeek-V4.1-Flash", displayName: "DeepSeek-V4.1-Flash", vision: true, thinkingMode: "switchable", supportedReasoningEfforts: ["low", "medium", "high"], defaultReasoningEffort: "high", contextLength: 1048576, maxTokens: 32768 },
-    { baseId: "DeepSeek-V4-Flash", displayName: "DeepSeek-V4-Flash", vision: false, thinkingMode: "switchable", supportedReasoningEfforts: ["low", "medium", "high"], defaultReasoningEffort: "high", contextLength: 1048576, maxTokens: 32768 },
+    { baseId: "DeepSeek-V4.1-Flash", displayName: "DeepSeek-V4.1-Flash", vision: true, thinkingMode: "switchable", supportedReasoningEfforts: ["low", "medium", "high", "xhigh", "max", "minimal"], defaultReasoningEffort: "high", contextLength: 1048576, maxTokens: 32768 },
+    { baseId: "DeepSeek-V4-Flash", displayName: "DeepSeek-V4-Flash", vision: false, thinkingMode: "switchable", supportedReasoningEfforts: ["low", "medium", "high", "xhigh", "max", "minimal"], defaultReasoningEffort: "high", contextLength: 1048576, maxTokens: 32768 },
     { baseId: "Gemma-4-31B-IT", displayName: "Gemma 4 31B", vision: true, thinkingMode: "switchable", supportedReasoningEfforts: ["low", "medium", "high"], defaultReasoningEffort: "high", contextLength: 262144, maxTokens: 32768 },
     { baseId: "GLM-5.3-Flash", displayName: "GLM-5.3-Flash", vision: false, thinkingMode: "switchable", supportedReasoningEfforts: ["low", "medium", "high"], defaultReasoningEffort: "high", contextLength: 262144, maxTokens: 32768 },
     { baseId: "MiMo-V2.6-Flash", displayName: "MiMo-V2.6-Flash", vision: true, thinkingMode: "switchable", supportedReasoningEfforts: ["low", "medium", "high"], defaultReasoningEffort: "high", contextLength: 1048576, maxTokens: 32768 },

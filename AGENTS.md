@@ -81,9 +81,10 @@
 | 模型 | 支持的档位 | 默认 |
 |------|-----------|------|
 | `Qwen3.8-27B` / `Qwen3.8-Flash-Next` | `none`/`low`/`medium`/`xhigh`（**`high`/`max`/`minimal` → 400**） | `xhigh` |
-| `DeepSeek-V4-Flash` / `GLM-5.3-Flash` 等 | `none`/`low`/`medium`/`high`/`xhigh`/`max`/`minimal`（全支持） | `high` |
+| `DeepSeek-V4-Flash` / `DeepSeek-V4.1-Flash` | `none`/`low`/`medium`/`high`/`xhigh`/`max`/`minimal`（全支持，2026-11-09 实测） | `high` |
+| `GLM-5.3-Flash` 等其余 | `none`/`low`/`medium`/`high`/`xhigh`/`max`（minimal 未实测确认） | `high` |
 
-> ⚠️ Qwen3.8 系列发 `reasoning_effort: "high"` 返回 400：`Unexpected reasoning effort high. Supported types are xhigh (default), medium, and low.` 因此档位数据**维护在** `models.ts`（`supportedReasoningEfforts` / `defaultReasoningEffort`，Qwen3.8 → `["low","medium","xhigh"]` + `xhigh`；其余 → `["low","medium","high"]` + `high`），`registry.ts` 的 `mergeModel` 经 `getBuiltInModelDef()` 读入 `ModelInfo`，消费方（命令档位框 / 视觉代理过滤 / 模型选择器枚举）统一经 `getModelInfo()` / `getVisionModelInfos()` 归一化读取。`visionProxyThinking` 是自由字符串（默认空 = 模型默认），档位选择在 `选择视觉代理模型` 命令里按模型动态加载，视觉代理发送时按模型过滤（用户选模型不支持的档位 → 回退模型默认）。详见 §4.6。
+> ⚠️ Qwen3.8 系列发 `reasoning_effort: "high"` 返回 400：`Unexpected reasoning effort high. Supported types are xhigh (default), medium, and low.` 因此档位数据**维护在** `models.ts`（`supportedReasoningEfforts` / `defaultReasoningEffort`，Qwen3.8 → `["low","medium","xhigh"]` + `xhigh`；DeepSeek 系列 → `["low","medium","high","xhigh","max","minimal"]` + `high`；其余 → `["low","medium","high"]` + `high`），`registry.ts` 的 `mergeModel` 经 `getBuiltInModelDef()` 读入 `ModelInfo`，消费方（命令档位框 / 视觉代理过滤 / 模型选择器枚举）统一经 `getModelInfo()` / `getVisionModelInfos()` 归一化读取。`visionProxyThinking` 是自由字符串（默认空 = 模型默认），档位选择在 `选择视觉代理模型` 命令里按模型动态加载，视觉代理发送时按模型过滤（用户选模型不支持的档位 → 回退模型默认）。详见 §4.6。
 
 **实现要点**：
 - `OpenaiApi.prepareRequestBody` / `AnthropicApi.prepareRequestBody` **只发 `reasoning_effort`，绝不发 `thinking`**。
