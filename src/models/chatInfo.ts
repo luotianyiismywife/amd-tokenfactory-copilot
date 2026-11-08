@@ -24,7 +24,9 @@ function effortLabel(effort: string): string {
         case "low": return l10n("Low");
         case "medium": return l10n("Medium");
         case "high": return l10n("High");
+        case "xhigh": return l10n("Xhigh");
         case "max": return l10n("Maximum");
+        case "minimal": return l10n("Minimal");
         default: return effort.charAt(0).toUpperCase() + effort.slice(1);
     }
 }
@@ -38,7 +40,9 @@ function effortDescription(effort: string): string {
         case "low": return l10n("Reduce thinking, faster response");
         case "medium": return l10n("Balance thinking and speed");
         case "high": return l10n("Deeper thinking, slower response");
+        case "xhigh": return l10n("Extra deep thinking, very slow response");
         case "max": return l10n("Maximum thinking depth, slowest response");
+        case "minimal": return l10n("Minimal thinking, fastest response");
         default: return effort;
     }
 }
