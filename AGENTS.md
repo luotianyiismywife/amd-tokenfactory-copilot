@@ -83,7 +83,7 @@
 | `Qwen3.8-27B` / `Qwen3.8-Flash-Next` | `none`/`low`/`medium`/`xhigh`（**`high`/`max`/`minimal` → 400**） | `xhigh` |
 | `DeepSeek-V4-Flash` / `GLM-5.3-Flash` 等 | `none`/`low`/`medium`/`high`/`xhigh`/`max`/`minimal`（全支持） | `high` |
 
-> ⚠️ Qwen3.8 系列发 `reasoning_effort: "high"` 返回 400：`Unexpected reasoning effort high. Supported types are xhigh (default), medium, and low.` 因此 `registry.ts` 的 `supportedReasoningEfforts` / `defaultReasoningEffort` 按模型 ID 区分（`Qwen3.8` 前缀 → `["low","medium","xhigh"]` + `xhigh`；其余 → `["low","medium","high"]` + `high`），`visionProxyThinking` 枚举含 `xhigh` 且视觉代理发送时按模型过滤（用户选模型不支持的档位 → 回退模型默认）。
+> ⚠️ Qwen3.8 系列发 `reasoning_effort: "high"` 返回 400：`Unexpected reasoning effort high. Supported types are xhigh (default), medium, and low.` 因此档位列表**只从内置清单读**（`models.ts` 的 `supportedReasoningEfforts` / `defaultReasoningEffort`，Qwen3.8 → `["low","medium","xhigh"]` + `xhigh`；其余 → `["low","medium","high"]` + `high`），`visionProxyThinking` 是自由字符串（默认空 = 模型默认），档位选择在 `选择视觉代理模型` 命令里按模型动态加载，视觉代理发送时按模型过滤（用户选模型不支持的档位 → 回退模型默认）。详见 §4.6。
 
 **实现要点**：
 - `OpenaiApi.prepareRequestBody` / `AnthropicApi.prepareRequestBody` **只发 `reasoning_effort`，绝不发 `thinking`**。
