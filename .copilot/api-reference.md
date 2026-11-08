@@ -61,23 +61,22 @@
       "ocr": false
     }],
     "context_length": 262144,   // ← 上下文窗口
-    "supported_parameters": ["temperature", "max_tokens", "top_p", "stream", "response_format", "tools", "tool_choice"],
+    "supported_parameters": ["temperature", "max_tokens", "top_p", "stream", "response_format", "tools", "tool_choice", "reasoning_effort"],
     "stability": "experimental"
   }
 ] }
 ```
 
-插件解析要点（`src/models/apiModelList.ts` → `normalizeModelEntry`）：`vision` = `input_modalities` 含 `image` 或 `providers[0].vision`；`tools` = `supported_parameters` 含 `tools` 或 `providers[0].tools`；`reasoning` = `providers[0].reasoning`。非聊天端点直接跳过：`output_modalities` 不含 `text` 或 `context_length <= 0`（如 OCR / decision / audio 服务）不进入模型列表。
+插件解析要点（`src/models/apiModelList.ts` → `normalizeModelEntry`）：`vision` = `input_modalities` 含 `image` 或 `providers[0].vision`；`tools` = `supported_parameters` 含 `tools` 或 `providers[0].tools`；`reasoning` = `providers[0].reasoning` 或 `supported_parameters` 含 `reasoning_effort`。非聊天端点直接跳过：`output_modalities` 不含 `text` 或 `context_length <= 0`（如 decision / audio 服务）不进入模型列表。
 
-> ⚠️ `supported_parameters` **不含 `reasoning_effort`**，但 `providers[0].reasoning=true` 表示模型支持思考——思考能力以 `providers[0].reasoning` 为准。
+> ⚠️ `supported_parameters` **含 `reasoning_effort`**（2026-11-09 实测，10 个 chat 模型全部有），但**不含具体档位列表**（如 `["low","medium","xhigh"]`）——档位范围只能实测（发请求看 400）确定，结论写死在 `models.ts`（见 AGENTS.md §4.6）。
 
-### 实测模型清单（2026-10-21：`/models` 返回 16 条，其中 11 个 chat 模型）
+### 实测模型清单（2026-11-09：`/models` 返回 14 条，其中 10 个 chat 模型）
 
 | 模型 | context_length | vision | tools | reasoning | 备注 |
 |------|---------------|--------|-------|-----------|------|
 | `DeepSeek-V4.1-Flash` | 1,048,576 | ✅ | ✅ | ✅ | 实测 rt=0（不产思考） |
 | `DeepSeek-V4-Flash` | 1,048,576 | ❌ | ✅ | ✅ | 实测 rt=0（不产思考） |
-| `DeepSeek-V4-Flash-Vision-Exp` | 1,048,576 | ✅ | ✅ | ✅ | **2026-10-23 退役** |
 | `Gemma-4-31B-IT` | 262,144 | ✅ | ✅ | ✅ | |
 | `GLM-5.3-Flash` | 262,144 | ❌ | ✅ | ✅ | |
 | `MiMo-V2.6-Flash` | 1,048,576 | ✅ | ✅ | ✅ | |
@@ -87,6 +86,8 @@
 | `Qwen3.8-27B` | 262,144 | ✅ | ✅ | ✅ | 实测 rt≈150-800（恒思考） |
 | `Qwen3.8-Flash-Next` | 262,144 | ✅ | ✅ | ✅ | 实测 rt≈120+（恒思考） |
 
+> **已退役**：`DeepSeek-V4-Flash-Vision-Exp`（2026-10-23 退役，已从清单移除）。
+
 **非 chat 端点**（`output_modalities` 非 `text` 或 `context_length=0`，插件过滤不显示）：
 
 | 模型 | output_modalities | 说明 |
@@ -94,8 +95,9 @@
 | `Clef` | `decision` | Cloudflare 27B 决策模型 |
 | `d3` | `decision` | vLLM-SR 27B 决策模型 |
 | `d3-flash` | `decision` | vLLM-SR 9B 决策模型 |
-| `MinerU2.5-Pro` | `ocr` | OCR 专用 |
 | `OmniVoice` | `audio` | TTS 专用 |
+
+> **已移除**：`MinerU2.5-Pro`（OCR，2026-11-09 实测已不在 `/models` 返回中）。
 
 全部由 sglang/vllm-router 动态路由（"Dynamic router service managed by Model Ops"），模型清单可能随平台调整——插件以内置清单兜底 + `/models` 自动发现。
 
