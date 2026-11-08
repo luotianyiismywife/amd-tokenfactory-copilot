@@ -18,6 +18,7 @@
 - **`visionProxyThinking` 改为自由字符串 + 命令动态加载档位**：设置项从布尔值改为自由字符串（默认空 = 模型默认），设置 UI 不再显示写死的枚举（VS Code 静态配置无法按模型动态枚举）。档位选择挪到 `选择视觉代理模型` 命令：选完视觉模型后，从该模型的 `supportedReasoningEfforts`（内置清单）动态加载档位列表供选择（如 Qwen3.8-27B → `low/medium/xhigh`）。全量值 `auto/none/low/medium/high/xhigh/max` 只写在注释里，供"平台不返回思考等级时用测试脚本探测各档位支持情况后写入 `models.ts`"作参考。
 - **`reasoning_effort` 支持范围按模型区分（2026-11-09 实测）**：Qwen3.8 系列（`Qwen3.8-27B` / `Qwen3.8-Flash-Next`）**不支持 `high`/`max`/`minimal`**（400 `Unexpected reasoning effort high. Supported types are xhigh (default), medium, and low.`），支持 `xhigh`（默认）/`medium`/`low`；DeepSeek-V4 / GLM-5.3 等全支持。档位列表**只从内置清单读**（平台 `/v1/models` 与 models.dev 都不返回具体档位列表，只给布尔标记——档位是平台部署级知识，只能实测 + 手写进 `models.ts`，见 AGENTS.md §4.6）。视觉代理发送时按模型过滤（用户选模型不支持的档位 → 回退模型默认，避免 400）。
 - **新增档位探测脚本 `scripts/dev/probe-reasoning-efforts.mjs`**：对每个 chat 模型 × 每个档位发最小请求（看 200/400），输出支持矩阵与 `models.ts` 更新建议。2026-11-09 实测：DeepSeek-V4-Flash / DeepSeek-V4.1-Flash / Gemma-4-31B-IT / MiMo-V2.6-Flash **全支持**（none/low/medium/high/xhigh/max/minimal），已更新 `models.ts`；GLM-5.3-Flash 支持到 max（minimal 未确认）；MiniCPM5-2B 仅 `low`/`medium`/`high`（none/xhigh/max/minimal → 400）；MiniCPM-V 两个模型响应超时未测全（单请求 300s 无返回，模型当前不可用或排队极慢）。
+- **补 `xhigh`/`minimal` 档位本地化标签与描述**：`chatInfo.ts` 的 `effortLabel` / `effortDescription` 此前只映射 `disabled/adaptive/enabled/low/medium/high/max`，`xhigh` 和 `minimal` 落到 default 分支显示为 "Xhigh" / "Minimal"（首字母大写，无本地化）。现补上两个档位的标签（超高 / 最小）与描述（极深入的思考，响应很慢 / 最少思考，响应最快），`localize.ts` 同步补字典项——选择器里 DeepSeek/Gemma/MiMo 的档位选项现在完整本地化。
 
 ## [2.0.2] - 2026-11-08
 
