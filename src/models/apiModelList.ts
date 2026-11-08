@@ -113,7 +113,12 @@ function normalizeModelEntry(raw: ApiModelEntry): ApiModelMetadata | undefined {
         supports_anthropic: true,
         supports_vision: supportsVision,
         supports_tools: supportedParams.includes("tools") || provider0.tools === true,
-        supports_reasoning: provider0.reasoning === true || supportedParams.includes("reasoning"),
+        // 思考能力：providers[0].reasoning（布尔）或 supported_parameters 含
+        // `reasoning_effort`（2026-11-09 实测：4 个模型都返回该参数标记）。
+        // ⚠️ 平台**没有**返回具体档位列表（如 ["low","medium","xhigh"]）——
+        // 只有"是否支持 reasoning_effort 参数"的布尔标记。具体档位范围由
+        // `registry.ts` 按模型 ID 兜底（见该处注释）。
+        supports_reasoning: provider0.reasoning === true || supportedParams.includes("reasoning_effort"),
         context_length: contextLength,
     };
 }
