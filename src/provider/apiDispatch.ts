@@ -110,7 +110,7 @@ export async function executeApiRequest(params: ApiRequestParams): Promise<void>
     // 主对话请求不传此字段，不受影响。
     if (params.reasoningEffortOverride && um) {
         if (params.reasoningEffortOverride === "auto") {
-            // ⚠️ AMD 平台没有 auto 档位（合法值 none/low/medium/high/max/minimal）。
+            // ⚠️ AMD 平台没有 auto 档位（合法值 none/low/medium/high/xhigh/max/minimal）。
             // auto 是给下游平台预留的语义：有 auto 的平台直接透传，没有的按
             // "不发送 reasoning_effort" 处理，让模型用自己的默认思考行为。
             um.reasoning_effort = undefined;

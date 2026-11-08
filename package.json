@@ -316,25 +316,7 @@
 				},
 				"amdTokenFactory.visionProxyThinking": {
 					"type": "string",
-					"default": "low",
-					"enum": [
-						"auto",
-						"none",
-						"low",
-						"medium",
-						"high",
-						"xhigh",
-						"max"
-					],
-					"enumDescriptions": [
-						"%config.visionProxyThinking.enum.auto.desc%",
-						"%config.visionProxyThinking.enum.none.desc%",
-						"%config.visionProxyThinking.enum.low.desc%",
-						"%config.visionProxyThinking.enum.medium.desc%",
-						"%config.visionProxyThinking.enum.high.desc%",
-						"%config.visionProxyThinking.enum.xhigh.desc%",
-						"%config.visionProxyThinking.enum.max.desc%"
-					],
+					"default": "",
 					"description": "%config.visionProxyThinking.desc%"
 				},
 				"amdTokenFactory.apiMode": {

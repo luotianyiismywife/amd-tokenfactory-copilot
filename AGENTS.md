@@ -554,13 +554,20 @@ AMD 平台当前**不属于**此情形（`/v1/models` 明确返回 `architecture
 **`amdTokenFactory.visionProxyThinking` 的思考等级来源链**：
 
 ```
-用户设置（auto/none/low/medium/high/xhigh/max，默认 low）
+用户设置（自由字符串，默认空 = 模型默认；全量值 auto/none/low/medium/high/xhigh/max 仅作注释参考）
+  → 命令 `选择视觉代理模型`：选完视觉模型后，从该模型 supportedReasoningEfforts 动态加载档位供选择
   → resolveVisionReasoningEffort(visionModelId)（vision/imageProxy.ts）
       → getModelInfo(visionModelId).supportedReasoningEfforts（来自内置清单）
+          ├─ 设置留空 / auto → 不发送 reasoning_effort（模型默认思考行为）
           ├─ 用户选的档位在支持列表里 → 直接透传
           └─ 不支持 → 回退 defaultReasoningEffort（也来自内置清单）
   → reasoningEffortOverride（apiDispatch.ts）→ prepareRequestBody → 上游请求体
 ```
+
+> 设置 UI 不显示写死的枚举（VS Code 静态配置无法按模型动态枚举）：档位选择在
+> `选择视觉代理模型` 命令里按当前视觉模型动态加载。全量值 `auto/none/low/medium/
+> high/xhigh/max` 只写在注释里，供"平台不返回思考等级时用测试脚本探测各档位支持
+> 情况后写入 `models.ts`"作参考。
 
 > 若平台将来返回 `supported_reasoning_efforts` 字段，应优先读它（改 `registry.ts` + `chatInfo.ts` 的枚举构建），内置清单降级为兜底——代码注释已注明。
 

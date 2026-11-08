@@ -18,6 +18,8 @@ import { getVisionModelInfos, refreshModelRegistry, type ModelInfo } from "../mo
 
 /** 设置键（不含 section）。 */
 const SETTING_KEY = "visionProxyModel";
+/** 思考档位设置键（不含 section）。 */
+const THINKING_SETTING_KEY = "visionProxyThinking";
 /** 设置 section。 */
 const SETTING_SECTION = "amdTokenFactory";
 
@@ -102,5 +104,35 @@ export async function selectVisionProxyModel(secrets: vscode.SecretStorage): Pro
     const target = resolveUpdateTarget(config);
     await config.update(SETTING_KEY, picked.modelId, target);
     logger.info("vision.proxyModelPicker.selected", { from: current, to: picked.modelId, target });
+
+    // 选完视觉模型后，动态加载该模型的思考档位让用户选（数据源：内置清单
+    // supportedReasoningEfforts，见 AGENTS.md §4.6）。平台 /v1/models 与 models.dev
+    // 都不返回档位列表，因此这里按模型从内置清单读。
+    const pickedInfo = candidates.find((c) => c.id === picked.modelId);
+    const supported = pickedInfo?.supportedReasoningEfforts ?? [];
+    const currentEffort = (config.get<string>(THINKING_SETTING_KEY, "") ?? "").trim();
+    const effortItems: vscode.QuickPickItem[] = [
+        {
+            label: l10n("Auto (model default)"),
+            description: currentEffort === "" || currentEffort === "auto" ? l10n("Current") : undefined,
+            picked: currentEffort === "" || currentEffort === "auto",
+        },
+        ...supported.map((effort) => ({
+            label: effort,
+            description: currentEffort === effort ? l10n("Current") : undefined,
+            picked: currentEffort === effort,
+        })),
+    ];
+    const effortPick = await vscode.window.showQuickPick(effortItems, {
+        title: l10nFormat("Vision proxy thinking for {0}", picked.modelId),
+        placeHolder: l10n("Pick the reasoning effort for this vision model (empty = model default)"),
+        ignoreFocusOut: true,
+    });
+    if (effortPick) {
+        const effortValue = effortPick.label === l10n("Auto (model default)") ? "" : effortPick.label;
+        await config.update(THINKING_SETTING_KEY, effortValue, target);
+        logger.info("vision.proxyThinkingPicker.selected", { modelId: picked.modelId, effort: effortValue, target });
+    }
+
     vscode.window.showInformationMessage(l10nFormat("Vision proxy model set to {0}", picked.modelId));
 }

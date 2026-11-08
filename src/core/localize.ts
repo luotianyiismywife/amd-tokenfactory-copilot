@@ -63,6 +63,9 @@ const zhCN: Record<string, string> = {
 	"No vision-capable models found. Make sure an API key is configured and the model list is reachable.": "未找到支持视觉的模型。请确认已配置 API Key 且模型列表可访问。",
 	"No vision-capable model is available. Configure amdTokenFactory.visionProxyModel or enable a vision model.": "没有可用的视觉模型。请配置 amdTokenFactory.visionProxyModel，或启用一个支持视觉的模型。",
 	"Vision proxy model set to {0}": "视觉代理模型已设为 {0}",
+	"Auto (model default)": "自动（模型默认）",
+	"Vision proxy thinking for {0}": "视觉代理思考档位（{0}）",
+	"Pick the reasoning effort for this vision model (empty = model default)": "选择该视觉模型的思考档位（留空 = 模型默认）",
 
 	// keyManager.ts - API Key management
 	"Available": "可用",
