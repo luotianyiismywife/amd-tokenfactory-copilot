@@ -323,6 +323,7 @@
 						"low",
 						"medium",
 						"high",
+						"xhigh",
 						"max"
 					],
 					"enumDescriptions": [
@@ -331,6 +332,7 @@
 						"%config.visionProxyThinking.enum.low.desc%",
 						"%config.visionProxyThinking.enum.medium.desc%",
 						"%config.visionProxyThinking.enum.high.desc%",
+						"%config.visionProxyThinking.enum.xhigh.desc%",
 						"%config.visionProxyThinking.enum.max.desc%"
 					],
 					"description": "%config.visionProxyThinking.desc%"

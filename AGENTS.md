@@ -71,10 +71,19 @@
 | 维度 | 标准 OpenAI/DeepSeek | AMD TokenFactory |
 |------|---------------------|------------------|
 | 开关参数 | `thinking: {type: enabled/disabled}` | ❌ **不支持**（OpenAI 端点任何形式均 400；Anthropic 端点带 `budget_tokens` 时 400，不带则被忽略） |
-| 深度控制 | `reasoning_effort` | ✅ `reasoning_effort`：`none`/`low`/`medium`/`high`（`max`/`minimal` 也接受） |
+| 深度控制 | `reasoning_effort` | ✅ `reasoning_effort`：`none`/`low`/`medium`/`high`/`xhigh`/`max`/`minimal`（**支持范围按模型不同**，见下） |
 | 思考内容字段（OpenAI） | `reasoning_content` | ✅ **`reasoning`**（`reasoning_content` 恒为 `null`） |
 | 思考内容字段（Anthropic） | `thinking` 块 | ✅ 原生返回 `thinking` 内容块（`blocks=[thinking,text]`） |
 | 是否可关 | 可关 | ❌ **模型固有**：Qwen3.8 系列恒思考、DeepSeek-V4 系列恒不思考 |
+
+**`reasoning_effort` 支持范围按模型不同（2026-11-09 实测）**：
+
+| 模型 | 支持的档位 | 默认 |
+|------|-----------|------|
+| `Qwen3.8-27B` / `Qwen3.8-Flash-Next` | `none`/`low`/`medium`/`xhigh`（**`high`/`max`/`minimal` → 400**） | `xhigh` |
+| `DeepSeek-V4-Flash` / `GLM-5.3-Flash` 等 | `none`/`low`/`medium`/`high`/`xhigh`/`max`/`minimal`（全支持） | `high` |
+
+> ⚠️ Qwen3.8 系列发 `reasoning_effort: "high"` 返回 400：`Unexpected reasoning effort high. Supported types are xhigh (default), medium, and low.` 因此 `registry.ts` 的 `supportedReasoningEfforts` / `defaultReasoningEffort` 按模型 ID 区分（`Qwen3.8` 前缀 → `["low","medium","xhigh"]` + `xhigh`；其余 → `["low","medium","high"]` + `high`），`visionProxyThinking` 枚举含 `xhigh` 且视觉代理发送时按模型过滤（用户选模型不支持的档位 → 回退模型默认）。
 
 **实现要点**：
 - `OpenaiApi.prepareRequestBody` / `AnthropicApi.prepareRequestBody` **只发 `reasoning_effort`，绝不发 `thinking`**。

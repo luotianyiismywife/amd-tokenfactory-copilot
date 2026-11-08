@@ -139,6 +139,16 @@ function mergeModel(
     // 思考能力：平台标记优先，models.dev 兜底。
     const reasoning = apiMeta?.supports_reasoning ?? devEntry?.reasoning ?? false;
 
+    // 思考档位按模型区分（2026-11-09 实测）：
+    //   Qwen3.8 系列（Qwen3.8-27B / Qwen3.8-Flash-Next）：支持 none/low/medium/xhigh，
+    //     **不支持 high/max/minimal**（400 "Unexpected reasoning effort high. Supported
+    //     types are xhigh (default), medium, and low."）→ 默认档位 xhigh。
+    //   其余模型（DeepSeek-V4 / GLM-5.3 等）：支持 none/low/medium/high/xhigh/max/minimal
+    //     → 默认档位 high。
+    const qwen38 = modelId.startsWith("Qwen3.8");
+    const supportedReasoningEfforts = reasoning ? (qwen38 ? ["low", "medium", "xhigh"] : ["low", "medium", "high"]) : undefined;
+    const defaultReasoningEffort = reasoning ? (qwen38 ? "xhigh" : "high") : undefined;
+
     return {
         id: modelId,
         displayName: apiMeta?.display_name ?? devEntry?.name ?? modelId,
@@ -147,8 +157,8 @@ function mergeModel(
         toolCalling: apiMeta?.supports_tools ?? devEntry?.tool_call ?? true,
         reasoning,
         thinkingMode: reasoning ? "switchable" : "always",
-        supportedReasoningEfforts: reasoning ? ["low", "medium", "high"] : undefined,
-        defaultReasoningEffort: reasoning ? "high" : undefined,
+        supportedReasoningEfforts,
+        defaultReasoningEffort,
         includeReasoningInRequest: reasoning,
         supportsTemperature: devEntry?.temperature ?? true,
         contextLength: apiMeta?.context_length ?? devEntry?.limit?.context ?? DEFAULT_CONTEXT_LENGTH,

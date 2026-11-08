@@ -7,8 +7,8 @@
  *
  * 模型 ID 可用环境变量覆盖：
  *   PROVIDER_TEST_MODEL          主测试模型（默认 DeepSeek-V4-Flash）
- *   PROVIDER_TEST_THINKING_MODEL 思考/effort 测试模型（默认 DeepSeek-V4-Flash）
- *   PROVIDER_TEST_VISION_MODEL   图片输入测试模型（默认 DeepSeek-V4-Flash-Vision-Exp）
+ *   PROVIDER_TEST_THINKING_MODEL 思考/effort 测试模型（默认 Qwen3.8-27B，恒思考）
+ *   PROVIDER_TEST_VISION_MODEL   图片输入测试模型（默认 Qwen3.8-27B）
  *
  * ⚠️ AMD TokenFactory 首字延迟可能长达 2 分钟 → 所有请求超时设为 5 分钟。
  */
@@ -21,8 +21,8 @@ if (!API_KEY) {
 
 // AMD TokenFactory 在售模型
 const TEST_MODEL = process.env.PROVIDER_TEST_MODEL || "DeepSeek-V4-Flash";
-const THINKING_MODEL = process.env.PROVIDER_TEST_THINKING_MODEL || "DeepSeek-V4-Flash";
-const VISION_MODEL = process.env.PROVIDER_TEST_VISION_MODEL || "DeepSeek-V4-Flash-Vision-Exp";
+const THINKING_MODEL = process.env.PROVIDER_TEST_THINKING_MODEL || "Qwen3.8-27B";
+const VISION_MODEL = process.env.PROVIDER_TEST_VISION_MODEL || "Qwen3.8-27B";
 
 const BASE = "https://developer.amd.com.cn/radeon/api/v1";
 /** 首字可能长达 2 分钟 → 单请求超时 5 分钟。 */
@@ -83,11 +83,6 @@ const TOOLS = [
 ];
 
 /**
- * Responses 端点要求扁平工具格式（OpenAI 嵌套 function 格式不被接受）:
- *   { type: "function", name, description, parameters }
- * 这是平台 Responses 端点与 OpenAI 端点的差异之一。
- */
-/**
  * 生成一个指定尺寸的纯色 PNG base64（浏览器环境下无效，Node 下返回 null）。
  * Node 环境下使用硬编码的 100x100 红色 PNG。
  */
@@ -105,16 +100,20 @@ async function testOpenAI() {
         check("HTTP 200", r.ok, `s=${r.status} ${r.raw}`);
         check("content 存在", !!r.body?.choices?.[0]?.message?.content);
         check("usage 存在", !!r.body?.usage);
-        // AMD 思考内容在 `reasoning` 字段（`reasoning_content` 恒为 null）
-        check("reasoning 字段存在", "reasoning" in (r.body?.choices?.[0]?.message ?? {}));
+        // AMD 思考内容在 `reasoning` 字段（`reasoning_content` 恒为 null）。
+        // 用 THINKING_MODEL（Qwen3.8-27B 恒思考）验证；TEST_MODEL（DeepSeek-V4-Flash）恒不产思考。
+        const rt = await api("/chat/completions", { model: THINKING_MODEL, messages: [{ role: "user", content: "回复OK" }], stream: false });
+        check("reasoning 字段存在（思考模型）", "reasoning" in (rt.body?.choices?.[0]?.message ?? {}), rt.raw.slice(0, 120));
     }
 
     console.log("--- 2. 流式对话 ---");
     {
         const r = await api("/chat/completions", { model: TEST_MODEL, messages: [{ role: "user", content: "用一句话介绍你自己" }], stream: true, stream_options: { include_usage: true } });
         check("流式文本增量", r.body.some(e => e.choices?.[0]?.delta?.content));
-        // AMD 流式思考在 `delta.reasoning`（`delta.reasoning_content` 恒为 null）
-        check("流式推理增量", r.body.some(e => e.choices?.[0]?.delta?.reasoning));
+        // AMD 流式思考在 `delta.reasoning`（`delta.reasoning_content` 恒为 null）。
+        // 用 THINKING_MODEL（Qwen3.8-27B 恒思考）验证；TEST_MODEL（DeepSeek-V4-Flash）恒不产思考。
+        const rt = await api("/chat/completions", { model: THINKING_MODEL, messages: [{ role: "user", content: "用一句话介绍你自己" }], stream: true, stream_options: { include_usage: true } });
+        check("流式推理增量（思考模型）", rt.body.some(e => e.choices?.[0]?.delta?.reasoning), rt.raw.slice(0, 120));
         check("流式 usage chunk", r.body.some(e => e.usage));
     }
 
@@ -151,9 +150,12 @@ async function testOpenAI() {
             check(`reasoning_effort=${eff}`, r.ok, `s=${r.status} ${r.raw}`);
         }
         // 思考内容在 `reasoning` 字段（非 reasoning_content）
-        const rq = await api("/chat/completions", { model: THINKING_MODEL, messages: [{ role: "user", content: "一个三位数，各位数字之和是 15，百位比十位大 2，个位是十位的 2 倍。求这个数。一步步推理。" }], stream: false, max_tokens: 8192, reasoning_effort: "high" });
+        // ⚠️ Qwen3.8 系列不支持 high/max/minimal（400），支持 xhigh（默认）/medium/low（2026-11-09 实测）。
+        const rq = await api("/chat/completions", { model: THINKING_MODEL, messages: [{ role: "user", content: "一个三位数，各位数字之和是 15，百位比十位大 2，个位是十位的 2 倍。求这个数。一步步推理。" }], stream: false, max_tokens: 8192, reasoning_effort: "xhigh" });
         const msg = rq.body?.choices?.[0]?.message ?? {};
-        check(`${THINKING_MODEL} 返回 reasoning 字段`, typeof msg.reasoning === "string" && msg.reasoning.length > 0, `reasoning=${msg.reasoning ? `len=${msg.reasoning.length}` : "absent"}`);
+        // 思考深度非确定性（AGENTS.md §1.4）：同参数重复 rt 波动，可能不产 reasoning。
+        // 用"回复OK"的简单请求验证 reasoning 字段存在（第 1 节已测）；此处仅记录行为。
+        check(`${THINKING_MODEL} 返回 reasoning 字段`, typeof msg.reasoning === "string" && msg.reasoning.length > 0, `reasoning=${msg.reasoning ? `len=${msg.reasoning.length}` : "absent（非确定性，AGENTS.md §1.4）"}`);
     }
 }
 
@@ -167,7 +169,9 @@ async function testAnthropic() {
         check("HTTP 200", r.ok, `s=${r.status} ${r.raw}`);
         check("type=message", r.body?.type === "message");
         check("有文本块", r.body?.content?.some(b => b.type === "text" && b.text));
-        check("有 thinking 块", r.body?.content?.some(b => b.type === "thinking"));
+        // thinking 块用 THINKING_MODEL（Qwen3.8-27B 恒思考）验证；TEST_MODEL（DeepSeek-V4-Flash）恒不产思考。
+        const rt = await api("/messages", { model: THINKING_MODEL, max_tokens: 512, messages: [{ role: "user", content: "回复OK" }] }, ANTH);
+        check("有 thinking 块（思考模型）", rt.body?.content?.some(b => b.type === "thinking"), rt.raw.slice(0, 120));
         check("usage 存在", !!r.body?.usage);
     }
 
@@ -178,7 +182,9 @@ async function testAnthropic() {
         check("message_start", types.has("message_start"));
         check("content_block_delta", types.has("content_block_delta"));
         check("text_delta", r.body.some(e => e.delta?.type === "text_delta"));
-        check("thinking_delta", r.body.some(e => e.delta?.type === "thinking_delta"));
+        // thinking_delta 用 THINKING_MODEL（Qwen3.8-27B 恒思考）验证。
+        const rt = await api("/messages", { model: THINKING_MODEL, max_tokens: 256, stream: true, messages: [{ role: "user", content: "say OK" }] }, ANTH);
+        check("thinking_delta（思考模型）", rt.body.some(e => e.delta?.type === "thinking_delta"), rt.raw.slice(0, 120));
         check("message_stop", types.has("message_stop"));
     }
 

@@ -96,8 +96,8 @@ export const BUILT_IN_MODELS: BuiltInModelDef[] = [
     { baseId: "MiniCPM5-2B", displayName: "MiniCPM5-2B", vision: false, thinkingMode: "switchable", supportedReasoningEfforts: ["low", "medium", "high"], defaultReasoningEffort: "high", contextLength: 131072, maxTokens: 32768 },
     { baseId: "MiniCPM-V-4.7-1B", displayName: "MiniCPM-V-4.7-1B", vision: true, thinkingMode: "switchable", supportedReasoningEfforts: ["low", "medium", "high"], defaultReasoningEffort: "high", contextLength: 262144, maxTokens: 32768 },
     { baseId: "MiniCPM-V-4.7-35B-A3B", displayName: "MiniCPM-V-4.7-35B-A3B", vision: true, thinkingMode: "switchable", supportedReasoningEfforts: ["low", "medium", "high"], defaultReasoningEffort: "high", contextLength: 262144, maxTokens: 32768 },
-    { baseId: "Qwen3.8-27B", displayName: "Qwen3.8-27B", vision: true, thinkingMode: "switchable", supportedReasoningEfforts: ["low", "medium", "high"], defaultReasoningEffort: "high", contextLength: 262144, maxTokens: 32768 },
-    { baseId: "Qwen3.8-Flash-Next", displayName: "Qwen3.8-Flash-Next", vision: true, thinkingMode: "switchable", supportedReasoningEfforts: ["low", "medium", "high"], defaultReasoningEffort: "high", contextLength: 262144, maxTokens: 32768 },
+    { baseId: "Qwen3.8-27B", displayName: "Qwen3.8-27B", vision: true, thinkingMode: "switchable", supportedReasoningEfforts: ["low", "medium", "xhigh"], defaultReasoningEffort: "xhigh", contextLength: 262144, maxTokens: 32768 },
+    { baseId: "Qwen3.8-Flash-Next", displayName: "Qwen3.8-Flash-Next", vision: true, thinkingMode: "switchable", supportedReasoningEfforts: ["low", "medium", "xhigh"], defaultReasoningEffort: "xhigh", contextLength: 262144, maxTokens: 32768 },
 ];
 
 /**

@@ -12,8 +12,9 @@
 ### 重构
 
 - **视觉代理复用对话请求链路**：`vision/imageProxy.ts` 不再走 `vscode.lm.selectChatModels` + `sendRequest()`（嵌套重入），改为直接调用 `executeApiRequest`（`provider/apiDispatch.ts`）——与对话同一条请求链路。端点由 `apiMode` 决定（与对话相同），`reasoning_effort` 由 `amdTokenFactory.visionProxyThinking` 决定，经 `executeApiRequest` 新增的可选参数 `reasoningEffortOverride` 传入（**不经过** `applyReasoningEffort`，主对话请求不受影响）。这样视觉代理不再是"单独实现"，后续视频/音乐等代理只需构造自己的 `um` + `messages` 即可复用整条链路。
-- **`visionProxyThinking` 改为枚举**：从布尔值改为 `auto` / `none` / `low` / `medium` / `high` / `max`，默认 `low`。AMD 平台**没有** `auto` 档位（合法值 none/low/medium/high/max/minimal）——`auto` 是给下游平台预留的语义，在本平台按"不发送 `reasoning_effort`"处理（代码中已注明，方便移植）。
+- **`visionProxyThinking` 改为枚举**：从布尔值改为 `auto` / `none` / `low` / `medium` / `high` / `xhigh` / `max`，默认 `low`。AMD 平台**没有** `auto` 档位（合法值 none/low/medium/high/xhigh/max/minimal）——`auto` 是给下游平台预留的语义，在本平台按"不发送 `reasoning_effort`"处理（代码中已注明，方便移植）。
 - **主模型续跑也复用 `executeApiRequest`（三链路共用标准接口）**：`visionRounds.ts` 的 `runOpenAIRound` / `runAnthropicRound` 不再自己拼 body + fetch（约 150 行重复的 temperature / top_p / max_completion_tokens / reasoning_effort / tools / tool_choice / system 拼装逻辑），改为构造 assistant tool_call + tool result 消息后调用 `executeApiRequest`，通过三个新可选参数控制：`apiInstance`（复用外层 api 实例，保留 `_hasImages`/`_systemContent`/`capturedReasoningContent`）、`apiMessagesOverride`（跳过 `convertMessages`，原样重放已转换消息 + 追加 tool 轮）、`skipVisionRounds`（防内层递归）。现在主对话 / 视觉代理 / 主模型续跑**三条链路共用一份请求拼装逻辑**（`convertMessages` + `prepareRequestBody` + `processStreamingResponse` + `checkZeroAnswerBudgetExhausted`），后续新增代理（视频/音乐）只需构造 `um` + `messages` 即可复用。
+- **`reasoning_effort` 支持范围按模型区分（2026-11-09 实测）**：Qwen3.8 系列（`Qwen3.8-27B` / `Qwen3.8-Flash-Next`）**不支持 `high`/`max`/`minimal`**（400 `Unexpected reasoning effort high. Supported types are xhigh (default), medium, and low.`），支持 `xhigh`（默认）/`medium`/`low`；DeepSeek-V4 / GLM-5.3 等全支持。`registry.ts` 的 `supportedReasoningEfforts` / `defaultReasoningEffort` 按模型 ID 区分（Qwen3.8 前缀 → `["low","medium","xhigh"]` + `xhigh`），内置清单同步；`visionProxyThinking` 枚举加 `xhigh`，视觉代理发送时按模型过滤（用户选模型不支持的档位 → 回退模型默认，避免 400）。
 
 ## [2.0.2] - 2026-11-08
 

@@ -48,21 +48,26 @@ export interface VisionProxyContext {
  *
  * ⚠️ `none` 对 AMD 的 Qwen3.8 系列（模型固有思考）会抑制思考并直接输出空内容
  * （EOS，HTTP 200 无 error），2026-11-08 实测。默认值 `low` 是安全档位。
+ *
+ * ⚠️ 档位按模型过滤（2026-11-09 实测）：Qwen3.8 系列**不支持 high/max/minimal**
+ * （400 "Unexpected reasoning effort high. Supported types are xhigh (default),
+ * medium, and low."），支持 xhigh。若用户选了模型不支持的档位，回退到该模型的
+ * 默认档位（Qwen3.8 → xhigh，其余 → high）。
  */
-function resolveVisionReasoningEffort(): string {
+function resolveVisionReasoningEffort(visionModelId: string): string {
     const configured = vscode.workspace.getConfiguration().get<string>("amdTokenFactory.visionProxyThinking", "low");
     const value = (configured ?? "low").trim().toLowerCase();
-    switch (value) {
-        case "auto":
-        case "none":
-        case "low":
-        case "medium":
-        case "high":
-        case "max":
-            return value;
-        default:
-            return "low";
+    const info = getModelInfo(visionModelId);
+    const supported = info?.supportedReasoningEfforts ?? [];
+    // 用户选的档位在模型支持列表里 → 直接透传。
+    if (supported.includes(value)) {
+        return value;
     }
+    // 模型不支持该档位 → 回退到模型默认档位（Qwen3.8 → xhigh，其余 → high）。
+    if (info?.defaultReasoningEffort) {
+        return info.defaultReasoningEffort;
+    }
+    return "low";
 }
 
 /**
@@ -141,7 +146,7 @@ async function sendVisionRequest(
             onUsage: () => {},
             collectedOutputText,
             // 思考等级由 visionProxyThinking 决定；非思考模型不传（不发该参数）。
-            reasoningEffortOverride: info.reasoning ? resolveVisionReasoningEffort() : undefined,
+            reasoningEffortOverride: info.reasoning ? resolveVisionReasoningEffort(visionModelId) : undefined,
         });
     } finally {
         clearTimeout(timeoutId);

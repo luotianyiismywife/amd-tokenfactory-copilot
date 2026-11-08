@@ -50,10 +50,10 @@ if (!KEY) {
     console.error('用法：node test/test-vision-check.mjs <API_KEY> [MODEL_ID]');
     process.exit(1);
 }
-// 默认用当前平台的视觉模型（2026-09-29 实测支持图片输入）
-const MODEL = process.argv[3] || 'example-model';
+// 默认用当前平台的视觉模型（2026-11-08 实测支持图片输入）
+const MODEL = process.argv[3] || 'Qwen3.8-27B';
 
-const r = await fetch('https://api.example.com/v1/chat/completions', {
+const r = await fetch('https://developer.amd.com.cn/radeon/api/v1/chat/completions', {
     method: 'POST',
     headers: { Authorization: `Bearer ${KEY}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
