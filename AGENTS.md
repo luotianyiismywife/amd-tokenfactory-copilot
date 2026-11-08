@@ -83,7 +83,7 @@
 | `Qwen3.8-27B` / `Qwen3.8-Flash-Next` | `none`/`low`/`medium`/`xhigh`（**`high`/`max`/`minimal` → 400**） | `xhigh` |
 | `DeepSeek-V4-Flash` / `GLM-5.3-Flash` 等 | `none`/`low`/`medium`/`high`/`xhigh`/`max`/`minimal`（全支持） | `high` |
 
-> ⚠️ Qwen3.8 系列发 `reasoning_effort: "high"` 返回 400：`Unexpected reasoning effort high. Supported types are xhigh (default), medium, and low.` 因此档位列表**只从内置清单读**（`models.ts` 的 `supportedReasoningEfforts` / `defaultReasoningEffort`，Qwen3.8 → `["low","medium","xhigh"]` + `xhigh`；其余 → `["low","medium","high"]` + `high`），`visionProxyThinking` 是自由字符串（默认空 = 模型默认），档位选择在 `选择视觉代理模型` 命令里按模型动态加载，视觉代理发送时按模型过滤（用户选模型不支持的档位 → 回退模型默认）。详见 §4.6。
+> ⚠️ Qwen3.8 系列发 `reasoning_effort: "high"` 返回 400：`Unexpected reasoning effort high. Supported types are xhigh (default), medium, and low.` 因此档位数据**维护在** `models.ts`（`supportedReasoningEfforts` / `defaultReasoningEffort`，Qwen3.8 → `["low","medium","xhigh"]` + `xhigh`；其余 → `["low","medium","high"]` + `high`），`registry.ts` 的 `mergeModel` 经 `getBuiltInModelDef()` 读入 `ModelInfo`，消费方（命令档位框 / 视觉代理过滤 / 模型选择器枚举）统一经 `getModelInfo()` / `getVisionModelInfos()` 归一化读取。`visionProxyThinking` 是自由字符串（默认空 = 模型默认），档位选择在 `选择视觉代理模型` 命令里按模型动态加载，视觉代理发送时按模型过滤（用户选模型不支持的档位 → 回退模型默认）。详见 §4.6。
 
 **实现要点**：
 - `OpenaiApi.prepareRequestBody` / `AnthropicApi.prepareRequestBody` **只发 `reasoning_effort`，绝不发 `thinking`**。
@@ -559,9 +559,9 @@ AMD 平台当前**不属于**此情形（`/v1/models` 明确返回 `architecture
 | 字段 | 降级链 | 说明 |
 |------|--------|------|
 | 上下文 / 输出上限 / 视觉 / 工具 / 思考（布尔） | `/v1/models` → models.dev → 代码默认值 | 平台返回真值，models.dev 只补缺字段；**内置清单不参与**（API 成功时旧值不覆盖平台） |
-| **思考档位列表**（`supportedReasoningEfforts` / `defaultReasoningEffort`） | **只从内置清单读** | 平台 `/v1/models` 与 models.dev **都不返回**具体档位列表（只给"是否支持 reasoning_effort"的布尔标记，2026-11-09 实测）。档位是**平台部署级知识**（Qwen3.8 在 AMD 上被裁剪成 xhigh/medium/low），只能实测 + 手写进 `models.ts` |
+| **思考档位列表**（`supportedReasoningEfforts` / `defaultReasoningEffort`） | **数据维护在 `models.ts`，消费方经 `getModelInfo()` 归一化读取** | 平台 `/v1/models` 与 models.dev **都不返回**具体档位列表（只给"是否支持 reasoning_effort"的布尔标记，2026-11-09 实测）。档位是**平台部署级知识**（Qwen3.8 在 AMD 上被裁剪成 xhigh/medium/low），只能实测 + 手写进 `models.ts` |
 
-**为什么思考档位不参与通用降级链**：`/v1/models` 的 `supported_parameters` 只含 `reasoning_effort` 布尔标记，models.dev 的 `reasoning` 也是布尔——两个数据源都无法回答"支持哪些档位"。档位范围只能通过**实测**（发请求看 400）确定，结论写死在 `models.ts`（唯一手工维护处）。`registry.ts` 的 `mergeModel` 从 `getBuiltInModelDef(modelId)` 读档位，内置清单没有该模型时才用默认 `["low","medium","high"]` + `high`。
+**为什么思考档位不参与通用降级链**：`/v1/models` 的 `supported_parameters` 只含 `reasoning_effort` 布尔标记，models.dev 的 `reasoning` 也是布尔——两个数据源都无法回答"支持哪些档位"。档位范围只能通过**实测**（发请求看 400）确定，结论写死在 `models.ts`（唯一手工维护处）。`registry.ts` 的 `mergeModel` 从 `getBuiltInModelDef(modelId)` 读档位放进 `ModelInfo`，内置清单没有该模型时才用默认 `["low","medium","high"]` + `high`；消费方（命令档位框 / 视觉代理过滤 / 模型选择器枚举）统一经 `getModelInfo()` / `getVisionModelInfos()` 读取，不直接碰 `models.ts`。
 
 **`amdTokenFactory.visionProxyThinking` 的思考等级来源链**：
 
@@ -569,10 +569,10 @@ AMD 平台当前**不属于**此情形（`/v1/models` 明确返回 `architecture
 用户设置（自由字符串，默认空 = 模型默认；全量值 auto/none/low/medium/high/xhigh/max 仅作注释参考）
   → 命令 `选择视觉代理模型`：选完视觉模型后，从该模型 supportedReasoningEfforts 动态加载档位供选择
   → resolveVisionReasoningEffort(visionModelId)（vision/imageProxy.ts）
-      → getModelInfo(visionModelId).supportedReasoningEfforts（来自内置清单）
+      → getModelInfo(visionModelId).supportedReasoningEfforts（数据源：models.ts，经 registry 归一化）
           ├─ 设置留空 / auto → 不发送 reasoning_effort（模型默认思考行为）
           ├─ 用户选的档位在支持列表里 → 直接透传
-          └─ 不支持 → 回退 defaultReasoningEffort（也来自内置清单）
+          └─ 不支持 → 回退 defaultReasoningEffort（数据源同上）
   → reasoningEffortOverride（apiDispatch.ts）→ prepareRequestBody → 上游请求体
 ```
 
