@@ -11,7 +11,8 @@ import { createRetryConfig, executeWithRetry } from "../core/utils";
 import { logger } from "../core/logger";
 import { OpenaiApi } from "../api/openai/openaiApi";
 import { AnthropicApi } from "../api/anthropic/anthropicApi";
-import type { AnthropicRequestBody } from "../api/anthropic/anthropicTypes";
+import type { AnthropicMessage, AnthropicRequestBody } from "../api/anthropic/anthropicTypes";
+import type { OpenAIChatMessage } from "../api/openai/openaiTypes";
 import type { CommonApi, StreamUsage } from "../api/commonApi";
 import { checkZeroAnswerBudgetExhausted } from "./errors";
 import { handleInterceptedToolCall } from "./visionRounds";
@@ -41,6 +42,47 @@ export interface ApiRequestParams {
     onUsage: (usage: StreamUsage) => void;
     /** Accumulated answer text (from trackingProgress) for zero-answer detection. */
     collectedOutputText: readonly string[];
+    /**
+     * 思考等级覆盖（供视觉代理等**代理请求**使用，主对话请求不传）。
+     *
+     * 代理请求不经过 `provider.ts` 的 `applyReasoningEffort`（那里读的是 VS Code
+     * 的 `modelConfiguration.reasoningEffort`），因此由调用方直接指定
+     * `reasoning_effort` 值，在 `prepareRequestBody` 前应用到 `um`。
+     *
+     * 取值（AMD 平台合法值，见 `package.json` 的 `amdTokenFactory.visionProxyThinking`）：
+     * - `"auto"`   → 不发送 `reasoning_effort`，让模型用自己的默认思考行为。
+     *   ⚠️ AMD 平台**没有** auto 档位（合法值 none/low/medium/high/max/minimal），
+     *   auto 是给下游平台预留的语义：有 auto 的平台直接透传，没有的按"不发送"处理。
+     * - `"none"`   → 发 `reasoning_effort: "none"`。⚠️ AMD 的 Qwen3.8 系列是
+     *   模型固有思考，none 会抑制思考并直接输出空内容（EOS），慎用。
+     * - `"low"` / `"medium"` / `"high"` / `"max"` → 直接透传。
+     */
+    reasoningEffortOverride?: string;
+    /**
+     * 复用的 API 实例（主模型续跑链路传外层实例）。
+     *
+     * 保留 `_localImages` / `_hasImages` / `_originalApiMessages` /
+     * `capturedReasoningContent` / `_systemContent` 状态，使 `prepareRequestBody`
+     * 能继续注入 ask_image 工具、`processStreamingResponse` 能继续拦截 ask_image。
+     * 不传时内部 new 一个新实例（主对话 / 视觉代理路径）。
+     */
+    apiInstance?: CommonApi<unknown, unknown>;
+    /**
+     * 已转换的 API 消息（跳过 convertMessages）。
+     *
+     * 供主模型续跑链路使用：它需要原样重放原始消息 + 追加 tool_call/tool_result，
+     * `convertMessages` 无法表达这种"已转换消息的追加"（图片引用替换会重复执行）。
+     * 不传时走 `convertMessages`（主对话 / 视觉代理路径）。
+     */
+    apiMessagesOverride?: unknown[];
+    /**
+     * 跳过视觉代理拦截（handleInterceptedToolCall）。
+     *
+     * 主模型续跑链路传 true：它本身就在视觉代理循环内，内层不能再进入
+     * `handleInterceptedToolCall`（否则无限递归）；模型再次调用 ask_image 时
+     * `interceptedToolCall` 仍会被 `processStreamingResponse` 设置，由外层循环处理。
+     */
+    skipVisionRounds?: boolean;
 }
 
 export async function executeApiRequest(params: ApiRequestParams): Promise<void> {
@@ -64,6 +106,21 @@ export async function executeApiRequest(params: ApiRequestParams): Promise<void>
         collectedOutputText,
     } = params;
 
+    // 代理请求（视觉代理等）的思考等级覆盖：在 prepareRequestBody 前应用到 um。
+    // 主对话请求不传此字段，不受影响。
+    if (params.reasoningEffortOverride && um) {
+        if (params.reasoningEffortOverride === "auto") {
+            // ⚠️ AMD 平台没有 auto 档位（合法值 none/low/medium/high/max/minimal）。
+            // auto 是给下游平台预留的语义：有 auto 的平台直接透传，没有的按
+            // "不发送 reasoning_effort" 处理，让模型用自己的默认思考行为。
+            um.reasoning_effort = undefined;
+        } else {
+            um.reasoning_effort = params.reasoningEffortOverride;
+        }
+        um.enable_thinking = true;
+        um.include_reasoning_in_request = true;
+    }
+
     /** 视觉代理后续轮次的公共参数。 */
     const visionParams = (api: CommonApi<unknown, unknown>) => ({
         api,
@@ -83,9 +140,12 @@ export async function executeApiRequest(params: ApiRequestParams): Promise<void>
 
     if (apiMode === "anthropic") {
         // Anthropic API mode
-        const anthropicApi = new AnthropicApi(model.id);
+        // 复用外层 api 实例（主模型续跑）或新建（主对话 / 视觉代理）。
+        const anthropicApi = (params.apiInstance as AnthropicApi | undefined) ?? new AnthropicApi(model.id);
         anthropicApi.onUsage = onUsage;
-        const anthropicMessages = anthropicApi.convertMessages(messages, modelConfig);
+        const anthropicMessages = params.apiMessagesOverride
+            ? (params.apiMessagesOverride as AnthropicMessage[])
+            : anthropicApi.convertMessages(messages, modelConfig);
 
         // requestBody
         let requestBody: AnthropicRequestBody = {
@@ -134,12 +194,17 @@ export async function executeApiRequest(params: ApiRequestParams): Promise<void>
         // --- Second round: handle ask_image tool call interception ---
         // Clear the first-round timeout before starting the second round
         clearTimeout(timeoutId);
-        await handleInterceptedToolCall(visionParams(anthropicApi));
+        if (!params.skipVisionRounds) {
+            await handleInterceptedToolCall(visionParams(anthropicApi));
+        }
     } else {
         // OpenAI Chat Completions API mode
-        const openaiApi = new OpenaiApi(model.id);
+        // 复用外层 api 实例（主模型续跑）或新建（主对话 / 视觉代理）。
+        const openaiApi = (params.apiInstance as OpenaiApi | undefined) ?? new OpenaiApi(model.id);
         openaiApi.onUsage = onUsage;
-        const openaiMessages = openaiApi.convertMessages(messages, modelConfig);
+        const openaiMessages = params.apiMessagesOverride
+            ? (params.apiMessagesOverride as OpenAIChatMessage[])
+            : openaiApi.convertMessages(messages, modelConfig);
 
         // requestBody
         let requestBody: Record<string, unknown> = {
@@ -192,6 +257,8 @@ export async function executeApiRequest(params: ApiRequestParams): Promise<void>
         // --- Second round: handle ask_image tool call interception ---
         // Clear the first-round timeout before starting the second round
         clearTimeout(timeoutId);
-        await handleInterceptedToolCall(visionParams(openaiApi));
+        if (!params.skipVisionRounds) {
+            await handleInterceptedToolCall(visionParams(openaiApi));
+        }
     }
 }

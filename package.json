@@ -26,7 +26,7 @@
 	"bugs": {
 		"url": "https://github.com/luotianyiismywife/amd-tokenfactory-copilot/issues"
 	},
-	"version": "2.0.2",
+	"version": "2.0.3",
 	"engines": {
 		"vscode": "^1.116.0"
 	},
@@ -315,8 +315,24 @@
 					"description": "%config.visionProxyModel.desc%"
 				},
 				"amdTokenFactory.visionProxyThinking": {
-					"type": "boolean",
-					"default": false,
+					"type": "string",
+					"default": "low",
+					"enum": [
+						"auto",
+						"none",
+						"low",
+						"medium",
+						"high",
+						"max"
+					],
+					"enumDescriptions": [
+						"%config.visionProxyThinking.enum.auto.desc%",
+						"%config.visionProxyThinking.enum.none.desc%",
+						"%config.visionProxyThinking.enum.low.desc%",
+						"%config.visionProxyThinking.enum.medium.desc%",
+						"%config.visionProxyThinking.enum.high.desc%",
+						"%config.visionProxyThinking.enum.max.desc%"
+					],
 					"description": "%config.visionProxyThinking.desc%"
 				},
 				"amdTokenFactory.apiMode": {

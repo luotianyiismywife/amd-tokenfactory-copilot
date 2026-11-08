@@ -2,6 +2,19 @@
 
 本文件记录 amd-tokenfactory-copilot 的用户可感知变更。格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/),版本号遵循语义化版本(新功能升 y,修 bug/调整升 z)。
 
+## [2.0.3] - 2026-11-08
+
+### 修复
+
+- **视觉代理静默返回空答案（ask_image 完全失效）**：旧实现默认给视觉模型发 `reasoning_effort: "none"`（想省掉思考、加快图片描述）。但 AMD 的 **Qwen3.8 系列是模型固有思考**，思考被抑制后它直接输出 EOS —— HTTP 200、无 error、`content` 为空、耗时仅约 400ms。日志实测（06:55 会话）：三轮 `vision.intercepted` 对应的嵌套 `Qwen3.8-27B` 请求分别 393 / 461 / 410 ms 完成，全部无 `vision.call-failed`，主模型只能回复"图片识别工具暂时没有返回内容"，用户完全无从排查。现改为：视觉代理**复用对话的请求链路**（`executeApiRequest`），`reasoning_effort` 由 `amdTokenFactory.visionProxyThinking` 决定（默认 `low`，安全且较快），不再走嵌套重入、不再硬编码 `none`。同时 `sendVisionRequest()` 在 `content` 为空时抛错（`vision.empty-answer`），失败原因会写进 tool result（`[Image query failed: …]`）而不是笼统的 `[Image query unavailable]`，空串兜底为 `[Image query returned no text from <model>]` —— 绝不让空串冒充成功答案。
+- **`thinking` 参数是死代码**：旧 `buildVisionOptions()` 里的 `thinking: { type: "disabled" }` 从未被转发到上游（`prepareRequestBody` 只读 `modelOptions.stop`，AMD 该参数本身 400），`getRequestedReasoningEffort` 也只认 `thinking.type === false` 这个布尔值，字符串 `"disabled"` 不匹配。已随重构删除，避免误导。
+
+### 重构
+
+- **视觉代理复用对话请求链路**：`vision/imageProxy.ts` 不再走 `vscode.lm.selectChatModels` + `sendRequest()`（嵌套重入），改为直接调用 `executeApiRequest`（`provider/apiDispatch.ts`）——与对话同一条请求链路。端点由 `apiMode` 决定（与对话相同），`reasoning_effort` 由 `amdTokenFactory.visionProxyThinking` 决定，经 `executeApiRequest` 新增的可选参数 `reasoningEffortOverride` 传入（**不经过** `applyReasoningEffort`，主对话请求不受影响）。这样视觉代理不再是"单独实现"，后续视频/音乐等代理只需构造自己的 `um` + `messages` 即可复用整条链路。
+- **`visionProxyThinking` 改为枚举**：从布尔值改为 `auto` / `none` / `low` / `medium` / `high` / `max`，默认 `low`。AMD 平台**没有** `auto` 档位（合法值 none/low/medium/high/max/minimal）——`auto` 是给下游平台预留的语义，在本平台按"不发送 `reasoning_effort`"处理（代码中已注明，方便移植）。
+- **主模型续跑也复用 `executeApiRequest`（三链路共用标准接口）**：`visionRounds.ts` 的 `runOpenAIRound` / `runAnthropicRound` 不再自己拼 body + fetch（约 150 行重复的 temperature / top_p / max_completion_tokens / reasoning_effort / tools / tool_choice / system 拼装逻辑），改为构造 assistant tool_call + tool result 消息后调用 `executeApiRequest`，通过三个新可选参数控制：`apiInstance`（复用外层 api 实例，保留 `_hasImages`/`_systemContent`/`capturedReasoningContent`）、`apiMessagesOverride`（跳过 `convertMessages`，原样重放已转换消息 + 追加 tool 轮）、`skipVisionRounds`（防内层递归）。现在主对话 / 视觉代理 / 主模型续跑**三条链路共用一份请求拼装逻辑**（`convertMessages` + `prepareRequestBody` + `processStreamingResponse` + `checkZeroAnswerBudgetExhausted`），后续新增代理（视频/音乐）只需构造 `um` + `messages` 即可复用。
+
 ## [2.0.2] - 2026-11-08
 
 ### 修复

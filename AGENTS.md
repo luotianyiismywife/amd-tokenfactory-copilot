@@ -230,6 +230,65 @@ Anthropic 模式:
          └── 轮次失败 → VisionRoundError（轮换循环直接抛出，不换 key）
 ```
 
+#### ⚠️ 三条链路共用 `executeApiRequest`（标准请求接口）
+
+| 链路 | 代码 | 说明 |
+|------|------|------|
+| **① 主对话** | `provider/provider.ts` → `runKeyRotationLoop` → `executeApiRequest` | 用户发消息 → 回答。`convertMessages` / `prepareRequestBody` / `processStreamingResponse` / `checkZeroAnswerBudgetExhausted` / `handleInterceptedToolCall` 全走 |
+| **② 视觉代理** | `vision/imageProxy.ts` → `executeApiRequest` | 非视觉模型收到图片 → 视觉模型回答。构造视觉模型的 `um` + `LanguageModelChatInformation` + 最小 `options`，直接调 `executeApiRequest`。端点由 `apiMode` 决定（与对话相同），`reasoning_effort` 由 `amdTokenFactory.visionProxyThinking` 决定，经 `reasoningEffortOverride` 传入（**不经过** `applyReasoningEffort`） |
+| **③ 主模型续跑** | `provider/visionRounds.ts` → `runOpenAIRound` / `runAnthropicRound` → `executeApiRequest` | 视觉代理拿到 description 后，把 assistant tool_call + tool result 追加到消息数组，**复用 `executeApiRequest`**（不再自己拼 body + fetch）。传 `apiInstance`（外层 api 实例，保留 `_hasImages`/`_systemContent`/`capturedReasoningContent`）、`apiMessagesOverride`（跳过 `convertMessages`，原样重放已转换消息 + 追加 tool 轮）、`skipVisionRounds: true`（防内层递归） |
+
+**`executeApiRequest` 的三个可选参数**（`apiDispatch.ts` 的 `ApiRequestParams`）：
+
+| 参数 | 用途 | 谁传 |
+|------|------|------|
+| `reasoningEffortOverride` | 代理请求的思考等级覆盖（不经过 `applyReasoningEffort`） | ② 视觉代理 |
+| `apiInstance` | 复用外层 api 实例（保留 `_hasImages`/`_systemContent`/`capturedReasoningContent`） | ③ 主模型续跑 |
+| `apiMessagesOverride` | 跳过 `convertMessages`，原样使用已转换消息 | ③ 主模型续跑 |
+| `skipVisionRounds` | 跳过 `handleInterceptedToolCall`（防递归） | ③ 主模型续跑 |
+
+**关键约束**：视觉代理的 `reasoning_effort` 由 `executeApiRequest` 的
+`reasoningEffortOverride` 参数决定（`apiDispatch.ts`），取值来自
+`amdTokenFactory.visionProxyThinking` 枚举（`auto`/`none`/`low`/`medium`/`high`/`max`）：
+
+- `"auto"` → **不发送** `reasoning_effort`（AMD 无 auto 档位，该语义为下游平台预留）
+- `"none"` → 发 `reasoning_effort: "none"`（⚠️ Qwen3.8 固有思考会空答案）
+- `"low"`/`"medium"`/`"high"`/`"max"` → 直接透传
+
+主对话请求不传 `reasoningEffortOverride`，仍由 `applyReasoningEffort` 读 VS Code 的
+`modelConfiguration.reasoningEffort` 决定 —— 三条链路互不影响。
+
+#### ⚠️ 空答案坑（2026-11-08 实测定位）
+
+旧实现（`buildVisionOptions()`）默认发 `reasoning_effort: "none"` 想“省掉思考、加快描述”。
+但 AMD 的 **Qwen3.8 系列是模型固有思考**（AGENTS.md §1.4）：思考被抑制后它直接输出
+EOS —— **HTTP 200、无 error、`content` 为空、耗时仅 ~400ms**。
+
+日志证据（`window2`，06:55）：
+
+```
+06:55:21.116 [vision.intercepted] round=1 ask_image imageIndex=0
+06:55:21.136 [request.start]  Qwen3.8-27B messageCount=1
+06:55:21.523 [request.end]    Qwen3.8-27B durationMs=393     ← 空答案
+06:55:23.854 [vision.intercepted] round=2 ...               ← 主模型换问法重试
+06:55:24.335 [request.end]    Qwen3.8-27B durationMs=461     ← 还是空
+06:55:26.676 [vision.intercepted] round=3 ...
+06:55:27.099 [request.end]    Qwen3.8-27B durationMs=410     ← 还是空
+06:55:33.523 [request.end]    GLM-5.3-Flash durationMs=22286 ← 主模型放弃
+```
+
+三轮都没有 `vision.call-failed`（因为没抛错，只是返回空串），主模型只能回复
+“图片识别工具暂时没有返回内容”，用户完全无从排查。
+
+**修复**：
+1. 视觉代理改为复用 `executeApiRequest`（不再嵌套重入），`reasoning_effort` 由
+   `amdTokenFactory.visionProxyThinking` 决定，默认 `"low"`（安全且较快）。
+2. `sendVisionRequest()` 收集文本：`content` 为空时抛错（`vision.empty-answer`），
+   由上层记录 `vision.call-failed`。
+3. `handleInterceptedToolCall()` 把失败原因写进 tool result（`[Image query failed: …]`），
+   而不是笼统的 `[Image query unavailable]`；空串兜底为
+   `[Image query returned no text from <model>]` —— 绝不让空串冒充成功答案。
+
 ### 2.7 Git 提交消息生成流程
 
 ```
@@ -501,8 +560,8 @@ AMD 平台当前**不属于**此情形（`/v1/models` 明确返回 `architecture
 - `provider.ts`：`ChatModelProvider`（`provideLanguageModelChatInformation` / `provideTokenCount` / `provideLanguageModelChatResponse` / `notifyModelListChanged`）
 - `requestOptions.ts`：`applyReasoningEffort` / `applyTemperature` / `resolveApiMode`
 - `rotation.ts`：`runKeyRotationLoop(params)`
-- `apiDispatch.ts`：`executeApiRequest(params)`
-- `visionRounds.ts`：`handleInterceptedToolCall(params)`
+- `apiDispatch.ts`：`executeApiRequest(params)`（`ApiRequestParams` 含可选 `reasoningEffortOverride` / `apiInstance` / `apiMessagesOverride` / `skipVisionRounds`，供视觉代理与主模型续跑复用同一请求链路）
+- `visionRounds.ts`：`handleInterceptedToolCall(params)`（内部 `runOpenAIRound` / `runAnthropicRound` 复用 `executeApiRequest`）
 - `errors.ts`：`VisionRoundError` / `TransientRetryExhaustedError` / `REASON_TEXT` / `checkZeroAnswerBudgetExhausted` / `buildAllKeysUnavailableDetail` / `tryTransientRetryRound` / `reportNativeUsage` / `getRequestedReasoningEffort`
 
 ### 5.5 `src/api/` 模块
@@ -578,7 +637,7 @@ AMD 平台当前**不属于**此情形（`/v1/models` 明确返回 `architecture
 - `types.ts`：`StoredImage` / `InterceptedToolCall` / `ASK_IMAGE_TOOL_DEF` / `ASK_WITH_MULTI_IMAGE_TOOL_DEF` / `buildUserImageReference` / `buildToolImageReference`
 - `historyCodec.ts`：`VISION_TOOL_HISTORY_MIME` / `serializeVisionToolHistory` / `deserializeVisionToolHistory` / `toOpenAIVisionToolMessages` / `toAnthropicVisionToolMessages`
 - `historyPart.ts`：`createVisionToolHistoryPart` / `parseVisionToolHistoryPart`
-- `imageProxy.ts`：`findVisionModel` / `callVisionModel` / `callVisionModelMulti`
+- `imageProxy.ts`：`VisionProxyContext` / `callVisionModel` / `callVisionModelMulti`（复用 `executeApiRequest`，`reasoning_effort` 由 `amdTokenFactory.visionProxyThinking` 决定）
 
 ---
 
