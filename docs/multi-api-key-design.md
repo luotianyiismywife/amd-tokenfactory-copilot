@@ -20,10 +20,10 @@
 
 ### 失效检测机制
 
-- **被动检测（唯一机制）**：请求失败后按 `<prefix>.errorRules`（四元组：code + message + statusCode + action）判定 key 失效并切换。`code`（错误体 error.code 精确匹配，主要字段）优先于 `statusCode`（HTTP 兜底）；`message` 仅作可读性说明不参与匹配。按数组顺序首个命中即生效。
-  - **确定性失效**（`action=rotatePersist`，持久化 `available=false`）：`code=billing`（封号）/ `code=INSUFFICIENT_BALANCE` / `statusCode=401` / `statusCode=402`。
-  - **瞬态失效**（`action=rotateCooldown`，仅内存冷却，不持久化）：`statusCode=429` / `statusCode=503`。
-  - **不换 key**（`action=retrySameKey`）：`code=upstream_stream_error` / `statusCode=400` / `statusCode=500`——退避后重试同一个 key。
+- **被动检测（唯一机制）**：请求失败后按 `<prefix>.errorRules`（三元组：statusCode + detail + action）判定 key 失效并切换。单条规则内 `detail`（错误体 detail 字段子串匹配，大小写不敏感——AMD 错误体格式 `{"detail":"..."}`，无 `error.code`）优先于 `statusCode`（HTTP 兜底）；`detail` 文本同时用作展示文案（经 `l10n()` 翻译，`getErrorRuleReason()`）。按数组顺序首个命中即生效。
+  - **确定性失效**（`action=rotatePersist`，持久化 `available=false`）：`detail=invalid bearer token` + `statusCode=401`（无效 key）/ `statusCode=402`（余额不足）。
+  - **瞬态失效**（`action=rotateCooldown`，仅内存冷却，不持久化）：`statusCode=429` / `statusCode=502` / `statusCode=503` / `statusCode=504`。
+  - **不换 key**（`action=retrySameKey`）：`statusCode=500`——退避后重试同一个 key。
 - **手动检测（自愈）**：QuickPick 管理中提供"检测可用性"，对选中 key 执行**最小真实聊天请求**（`say ok`、`max_tokens=8`；余额不足时被 402 拦截不耗 token），通过后标记为可用（充值后无需手动改状态）。**不使用 `/v1/models` 校验**（余额 < 0 也能返回 200，无法作为可用性判据）。
 - **瞬态自动重试**：全部 key 均因 `rotateCooldown` 规则失败时，按 `<prefix>.transientRetryTimes`（默认 3）自动重试整轮——指数退避等待（2s/4s/8s，上限 8s），重试前**清空瞬态冷却**（否则 `pickNextApiKey` 会跳过全部 key 使重试无效），次数用尽才报错。
 - **平台侧错误不换 key**：500 Internal Server Error 是平台问题而非 key 问题——它命中 `retrySameKey` 规则，因此**不标记 key、不换 key**，仅退避后重试同一个 key（日志 `key.transientRetrySameKey`）；重试次数用尽时抛出 `TransientRetryExhaustedError`（友好文案 + 原始错误后缀）。
@@ -65,7 +65,7 @@
 let rotationIndex = 0;
 
 // 瞬态失效表：429 限流 / 503 服务端繁忙等"可能恢复"的失效，带冷却时间
-// Map<keyValue, { exhaustedAt: number; reason: "rate_limited" | "server_error" }>
+// Map<keyValue, { exhaustedAt: number; reason: string }>  // reason = getErrorRuleReason() 的展示文案
 const transientExhausted = new Map<string, TransientExhausted>();
 ```
 
@@ -83,8 +83,8 @@ const transientExhausted = new Map<string, TransientExhausted>();
     │                             │                              │
     └────── 手动检测(余额不足/401) ┘                              │
                                                                  │
-    [true] 可用 ──请求429──▶ (内存) 冷却中(rate_limited) ──冷却到期自动恢复──▶ [true]
-    [true] 可用 ──请求503──▶ (内存) 冷却中(server_error) ──冷却到期自动恢复──▶ [true]
+    [true] 可用 ──请求429──▶ (内存) 冷却中(展示文案) ──冷却到期自动恢复──▶ [true]
+    [true] 可用 ──请求503──▶ (内存) 冷却中(展示文案) ──冷却到期自动恢复──▶ [true]
     [true] 可用 ──请求401──▶ [false] invalid（持久化）
     [false] 不可用 ──手动检测通过(自愈)──▶ [true]
     [false] 不可用 ──重置失效状态命令──▶ [null] 未检测
@@ -93,7 +93,7 @@ const transientExhausted = new Map<string, TransientExhausted>();
 - `available=false` 是**持久化**的（SecretStorage），重启保留（确定性原因：余额不足 / 无效 Key）。
 - 429/503 是**瞬态冷却**（内存 + 冷却时间 `<prefix>.apiKeyExhaustedCooldownMin`，默认 10 分钟），到期自动恢复，不写持久化。**冷却期间 `pickNextApiKey` 会跳过该 key**；瞬态整轮重试前需 `resetExhaustedKeys(secrets,false)` 清空冷却。
 - **自愈**：请求成功时自动把该 key 恢复为 `available=true`。
-- **503 属于瞬态而非确定性**：平台繁忙通常很快恢复，持久化不可用会导致冷却到期后仍被阻挡。`getKeyRotationReason` 精确提取原因（402/401→确定性；429/503→瞬态），`markApiKeyExhausted` 按 `TRANSIENT_REASONS`（rate_limited/server_error）决定只冷却不持久化。
+- **503 属于瞬态而非确定性**：平台繁忙通常很快恢复，持久化不可用会导致冷却到期后仍被阻挡。`matchErrorRule` 按三元组（detail → statusCode）分类，`markApiKeyExhausted` 按 `action` 决定只冷却不持久化（**处置由 action 决定，不靠 reason 字符串推断**）。
 
 ---
 
@@ -106,7 +106,7 @@ const transientExhausted = new Map<string, TransientExhausted>();
 | `getApiKeyStore(secrets)` | `(secrets) => Promise<ApiKeyStore>` | 读取并缓存 store；自动迁移旧 `<prefix>.apiKey`；JSON 损坏时回退修复 |
 | `saveApiKeyStore(secrets, store)` | `(secrets, store) => Promise<void>` | 写新格式；成功后删除旧 key（幂等） |
 | `getApiKeyMode()` / `getSingleKeyFallback()` | 同步 | 读取 `apiKeyMode`（默认 sticky）/ `singleKeyFallback`（默认 switch），非法值回退 |
-| `getErrorRules()` | 同步 | 错误分类规则（四元组 code + message + statusCode + action，默认 9 条，见 `retry-and-key-rotation.md` §3.1） |
+| `getErrorRules()` | 同步 | 错误分类规则（三元组 statusCode + detail + action，默认 7 条，见 `retry-and-key-rotation.md` §3.1） |
 | `getTransientRetryTimes()` | 同步 | 瞬态整轮重试次数（默认 3，0 禁用） |
 | `getExhaustedCooldownMin()` | 同步 | 429/503 瞬态冷却时长（分钟，默认 10） |
 | `getPrimaryApiKey(secrets)` | `(secrets) => Promise<ApiKeyEntry \| undefined>` | 模型列表/同步用：single→active；sticky→从 activeIndex 环形扫描第一个可用；rotation→从游标环形扫描第一个可用（跳过冷却与不可用） |
@@ -116,11 +116,11 @@ const transientExhausted = new Map<string, TransientExhausted>();
 | `getTransientExhaustedInfo(keyValue)` | 同步 | 查询瞬态冷却状态（原因 + 剩余秒数），冷却到期自动清除 |
 | `hasTransientExhaustedKey(secrets)` | 异步 | 是否存在冷却中的 key（供"全部不可选"时判断是否值得整轮自动重试） |
 | `isApiKeyEligible(entry)` | 同步 | 判断是否可被选中（非冷却中、非 `available=false`） |
-| `matchErrorRule(err)` | 同步 | 匹配 `errorRules` 四元组（code 精确匹配优先于 statusCode 兜底），返回命中的 `ErrorRule` 或 undefined |
+| `matchErrorRule(err)` | 同步 | 匹配 `errorRules` 三元组（detail 子串匹配优先于 statusCode 兜底），返回命中的 `ErrorRule` 或 undefined |
 | `isKeyRotationError(err)` | 同步 | 命中 `rotateCooldown`/`rotatePersist` 规则 → 应换 key（`retrySameKey` 不换） |
 | `isTransientRetryError(err)` | 同步 | 命中 `retrySameKey`/`rotateCooldown` 规则 → 瞬态类，值得整轮自动重试（`rotatePersist` 为确定性） |
-| `getKeyRotationReason(err)` | 同步 | 取命中规则的 `message` 说明（供日志/报错展示） |
-| `getKeyUnavailableReason(entry)` | 同步 | 取当前不可用原因（供报错展示）：冷却中→`rate_limited`/`server_error`；持久化不可用→`unavailable`；其他→`balance` |
+| `getErrorRuleReason(rule)` | 同步 | 取规则的展示文案：`detail` 经 `l10n()` 翻译（翻译缺失原样显示）；无 `detail` 按 `statusCode` 查 `STATUS_REASON_LABELS` |
+| `getKeyUnavailableReason(entry)` | 同步 | 取当前不可用原因（供报错展示）：冷却中→展示文案（`getErrorRuleReason()` 输出）；持久化不可用→`unavailable`；其他→`balance` |
 | `markApiKeyExhausted(secrets, key, reason, action)` | 异步 | 按 `action` 处置：`rotateCooldown` → 仅内存冷却不持久化；`rotatePersist` → 持久化 `available=false` |
 | `markApiKeyAvailable(secrets, key)` | 异步 | 置 `available=true`，清冷却（自愈/手动检测通过） |
 | `updateKeyAvailability(secrets, key, available)` | 异步 | 通用状态更新 |
@@ -197,10 +197,10 @@ while (true):
       成功 → 自愈置可用 + 返回
   catch err:
       取消/超时 → 抛出
-      rule = matchErrorRule(err)                 // errorRules 四元组
+      rule = matchErrorRule(err)                 // errorRules 三元组
       rule.action == rotateCooldown / rotatePersist:   // 换 key
           failedKeys.set(key, rule)
-          markApiKeyExhausted(key, rule.message, rule.action)  // 冷却 / 持久化
+          markApiKeyExhausted(key, getErrorRuleReason(rule), rule.action)  // 冷却 / 持久化
           continue                               // 换下一个 key
       rule.action == retrySameKey:               // 500/上游中断等平台侧错误
           if tryTransientRetryRound(sameKeyRetryCount):
@@ -220,8 +220,8 @@ while (true):
 
 1. **配置前缀**：`<prefix>` 全局替换（见 `PLATFORM_PORTING.md` §1.2）。
 2. **失效判定**：若新平台的错误语义不同，调整 `src/keys/config.ts` 的 `DEFAULT_ERROR_RULES`（`<prefix>.errorRules`）：
-   - `code` 默认值（`billing` / `upstream_stream_error` / `INSUFFICIENT_BALANCE`）是**平台专属示例**，按你平台错误响应体的 `error.code` 替换
-   - `statusCode` 兜底（401/402/429/503/400/500）是**通用 HTTP 语义**，通常无需改动
+   - `detail` 默认值（`invalid bearer token`）是**平台专属实测签名**，按你平台错误响应体的 `detail` 字段文本替换（子串匹配、大小写不敏感）
+   - `statusCode` 兜底（401/402/429/502/503/504/500）是**通用 HTTP 语义**，通常无需改动
    - 详见 `retry-and-key-rotation.md` §3.1
 3. **余额展示**：AMD 无余额概念，无需实现。
 

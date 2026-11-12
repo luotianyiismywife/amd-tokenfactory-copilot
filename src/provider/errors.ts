@@ -41,16 +41,17 @@ export class TransientRetryExhaustedError extends Error {
 }
 
 /**
- * Human-readable labels for key rotation failure reasons (keys are l10n keys).
+ * `getKeyUnavailableReason()` 返回值的展示文案映射（keys are l10n keys）。
+ *
+ * `getKeyUnavailableReason()` 只可能返回三类值：
+ * - `balance`（未检测 / 其他）→ "Balance insufficient"
+ * - `unavailable`（持久化 available=false）→ "Unavailable"
+ * - 瞬态冷却中的 reason（`getErrorRuleReason()` 的输出，如 "Rate limited" /
+ *   "无效 key"）→ 本身已是 l10n key，走 `?? reason` 回退分支直接翻译
  */
 export const REASON_TEXT: Record<string, string> = {
     balance: "Balance insufficient",
-    invalid: "Key invalid",
-    rate_limited: "Rate limited (429)",
-    server_error: "Server error (503)",
-    api_error: "API error",
     unavailable: "Unavailable",
-    banned: "Account banned (billing frozen)",
 };
 
 /**

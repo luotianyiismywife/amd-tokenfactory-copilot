@@ -8,6 +8,10 @@
 
 - **思考档位选择器顺序错乱（`minimal` 排在 `max` 之后）**：模型选择器的档位选项按 `models.ts` 的 `supportedReasoningEfforts` 数组顺序渲染（`registry.ts` 原样透传，不做排序），此前 `minimal` 被追加在数组末尾，导致选择器显示为「禁用思考 / 低 / 中 / 高 / 超高 / 极高 / 最小」——最低强度跑到最高强度右边了。现按强度升序重排为 `["minimal", "low", "medium", "high", "xhigh", "max"]`，涉及 `DeepSeek-V4.1-Flash` / `DeepSeek-V4-Flash` / `Gemma-4-31B-IT` / `MiMo-V2.6-Flash` 四个模型；`probe-reasoning-efforts.mjs` 的 `ALL_EFFORTS` 同步改为升序（探测输出的 `models.ts` 建议顺序随之正确）。
 
+### 重构
+
+- **`errorRules` 简化为三元组（statusCode + detail + action）**：删除 `code`（错误体 `error.code` 精确匹配）与 `message`（仅说明不参与匹配）两个字段——AMD 错误体格式为 `{"detail":"..."}`（无 `error.code`），`code` 字段从未生效过。`detail`（错误体 detail 字段子串匹配，大小写不敏感）优先于 `statusCode`（HTTP 状态码兜底），并**同时用作展示文案**（经 `l10n()` 翻译后显示，翻译缺失时原样显示 detail 文本；无 `detail` 的规则按状态码查内置标签）。默认 401 规则带上实测签名 `detail: "invalid bearer token"`。封号 key 与无效 key 在 API 层不可区分（同样 401 + 该文本，2026-11-12 实测），如平台将来返回不同错误文本，直接在设置里加一条 `{ "detail": "<文本>", "action": "rotatePersist" }` 即可细分，无需改代码。展示文案统一由 `getErrorRuleReason()` 生成，`REASON_TEXT` 清理为仅剩实际会命中的 `balance` / `unavailable` 两键。
+
 ## [2.0.3] - 2026-11-08
 
 ### 修复

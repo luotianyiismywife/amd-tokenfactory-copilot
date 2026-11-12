@@ -12,7 +12,7 @@
 | 脚本 | 类型 | 说明 |
 |------|------|------|
 | `api-tests.mjs` | 联网 | **双协议完整测试**（OpenAI / Anthropic），需真实 API Key。覆盖非流式/流式对话、工具调用、多轮回填、`reasoning_effort`（含 `thinking` 被拒 400 的回归）、`reasoning` 字段 |
-| `test-transient-retry.mjs` | 离线 | **错误分类规则**（14 项断言）：401/402 → rotatePersist、429/502/503/504 → rotateCooldown、500 → retrySameKey、403 不命中、code 优先于 statusCode、规则可配置、`markApiKeyExhausted` 由 action 决定处置 |
+| `test-transient-retry.mjs` | 离线 | **错误分类规则**（17 项断言）：401/402 → rotatePersist、429/502/503/504 → rotateCooldown、500 → retrySameKey、403 不命中、detail 子串匹配优先于 statusCode、规则可配置、未知字段过滤、`markApiKeyExhausted` 由 action 决定处置 |
 | `test-keys.mjs` | 离线 | **Key 选择与状态**（18 项断言）：rotation 游标前移 / sticky 钉住 / single active、跳过不可用与冷却 key、single fallback 判定、store 增删改（冲突校验）、旧版单 key 迁移 |
 | `test-rotation.mjs` | 离线 | **轮换循环**（7 项断言）：成功路径、402 换 key（持久化）、429 换 key（仅冷却）、500 不换 key（同 key 重试）、全部失败报错（脱敏）、取消立即抛出、single 余额不足降级 rotation |
 | `test-banned-rotation.mjs` | 离线 | **Key 失效与轮换**（11 项断言）：401/402 命中轮换 + reason、500 不轮换、403 不命中、持久化 available=false、失效 key 被跳过、`REASON_TEXT`、自定义 errorRules |

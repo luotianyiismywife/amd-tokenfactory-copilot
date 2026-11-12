@@ -77,7 +77,7 @@ npm run audit     # 7 项审计
 |------|------|------|
 | **内置模型清单** | `src/models/models.ts` → `BUILT_IN_MODELS` | 替换为你的模型（`baseId` / `displayName` / `vision` / `thinkingMode` / `contextLength` / `maxTokens`） |
 | **视觉能力兜底** | `src/models/visionModels.ts` → `HARDCODED_VISION` | 填入你平台自研模型的视觉能力（可留空） |
-| **错误分类规则** | `src/keys/config.ts` → `DEFAULT_ERROR_RULES` | 四元组（code + message + statusCode + action）。`code` 默认值是平台专属示例，按你平台错误响应体的 `error.code` 替换；`statusCode` 兜底为通用 HTTP 语义，通常无需改动（见 [`retry-and-key-rotation.md`](retry-and-key-rotation.md) §3.1） |
+| **错误分类规则** | `src/keys/config.ts` → `DEFAULT_ERROR_RULES` | 三元组（statusCode + detail + action）。`detail` 默认值是平台专属实测签名，按你平台错误响应体的 `detail` 字段文本替换（子串匹配、大小写不敏感，兼作展示文案）；`statusCode` 兜底为通用 HTTP 语义，通常无需改动（见 [`retry-and-key-rotation.md`](retry-and-key-rotation.md) §3.1） |
 | **欢迎页文案** | `resources/walkthrough/*.md` | 平台名与说明 |
 | **本地化文案** | `src/core/localize.ts` + `package.nls*.json` | 平台专属文案 |
 

@@ -52,7 +52,7 @@
   "config.singleKeyFallback.desc": "single 模式下当前 key 失败时的自动切换行为：switch（默认；仅在当前 key 余额不足（402 / 预检不足）时自动切换到下一个可用 key 并设为当前使用，右下角弹窗提示；401/429/503 等其他错误不切换）或 error（任何错误都直接报错，不切换）。",
   "config.singleKeyFallback.enum.error.desc": "任何错误都直接报错，不切换到其他 key。",
   "config.singleKeyFallback.enum.switch.desc": "仅在当前 key 余额不足（402 / 预检不足）时自动切换到下一个可用 key 并设为当前使用，右下角弹窗提示；其他轮换错误（401 无效 / 429 限流 / 503 繁忙）不切换。",
-  "config.errorRules.desc": "错误分类规则（四元组：code + message + statusCode + action）。按数组顺序匹配，首个命中即生效：code（错误体 error.code 精确匹配，**主要匹配字段**）优先于 statusCode（HTTP 状态码兜底）；message 仅作可读性说明**不参与匹配**。action 与 key 状态一一对应：retrySameKey = 状态不变（退避后重试同一个 key）、rotateCooldown = 冷却中（换 key，仅内存冷却，到期自动恢复）、rotatePersist = 不可用（换 key，持久化 available=false）。默认 code 值为示例，移植时按你平台的错误码替换。",
+  "config.errorRules.desc": "错误分类规则（三元组：statusCode + detail + action）。按数组顺序匹配，首个命中即生效。单条规则内匹配优先级：detail（错误体 detail 字段子串匹配，大小写不敏感——AMD 错误体格式为 {\"detail\":\"...\"}，无 error.code）优先于 statusCode（HTTP 状态码兜底）。detail 文本同时用作展示文案（经 l10n 翻译后显示）。action 与 key 状态一一对应：retrySameKey = 状态不变（退避后重试同一个 key）、rotateCooldown = 冷却中（换 key，仅内存冷却，到期自动恢复）、rotatePersist = 不可用（换 key，持久化 available=false）。",
   "config.apiKeyExhaustedCooldownMin.desc": "瞬态失效 key（如 429 限流）在可被再次使用前的冷却时长（分钟）。0 = 立即恢复可用。",
   "config.transientRetryTimes.desc": "全部 key 因瞬态错误（429 限流 / 500 内部错误 / 503 服务端繁忙）而不可用时，自动重试整个轮换循环的次数。每轮之间指数退避等待（2 秒/4 秒/8 秒），重试前清空瞬态冷却。0 = 禁用自动重试。",
   "command.manageApiKeys": "管理 API Keys",

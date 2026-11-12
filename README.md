@@ -55,7 +55,7 @@ Sign in at <https://developer.amd.com.cn/radeon/tokenfactory> and create an API 
 | `amdTokenFactory.apiMode` | `auto` | `auto` / `openai` / `anthropic` |
 | `amdTokenFactory.apiKeyMode` | `sticky` | `sticky` (pin one key) / `rotation` (next key per request) / `single` (current key only) |
 | `amdTokenFactory.singleKeyFallback` | `switch` | In `single` mode: `switch` (auto-switch on 402) or `error` |
-| `amdTokenFactory.errorRules` | 401/402 → persist; 429/502/503/504 → cooldown; 500 → retrySameKey | Error classification rules (code + message + statusCode + action) |
+| `amdTokenFactory.errorRules` | 401/402 → persist; 429/502/503/504 → cooldown; 500 → retrySameKey | Error classification rules (statusCode + detail + action) |
 | `amdTokenFactory.apiKeyExhaustedCooldownMin` | `10` | Cooldown minutes for rate-limited keys |
 | `amdTokenFactory.transientRetryTimes` | `3` | Whole-round automatic retries when all keys are cooling down |
 | `amdTokenFactory.requestTimeout` | `600000` | Request timeout (ms). First token may take up to 2 minutes |
@@ -138,7 +138,7 @@ MIT. Architecture based on [any2copilot](https://github.com/luotianyiismywife/an
 | `amdTokenFactory.apiMode` | `auto` | `auto` / `openai` / `anthropic` |
 | `amdTokenFactory.apiKeyMode` | `sticky` | `sticky`（固定一个 key）/ `rotation`（每次请求换 key）/ `single`（仅用当前 key） |
 | `amdTokenFactory.singleKeyFallback` | `switch` | `single` 模式下：`switch`（402 时自动切换）或 `error` |
-| `amdTokenFactory.errorRules` | 401/402 → persist；429/502/503/504 → cooldown；500 → retrySameKey | 错误分类规则（code + message + statusCode + action） |
+| `amdTokenFactory.errorRules` | 401/402 → persist；429/502/503/504 → cooldown；500 → retrySameKey | 错误分类规则（statusCode + detail + action） |
 | `amdTokenFactory.apiKeyExhaustedCooldownMin` | `10` | 限流 key 的冷却分钟数 |
 | `amdTokenFactory.transientRetryTimes` | `3` | 全部 key 冷却时的整轮自动重试次数 |
 | `amdTokenFactory.requestTimeout` | `600000` | 请求超时（ms）。首字可能长达 2 分钟 |

@@ -120,9 +120,15 @@ const zhCN: Record<string, string> = {
 	"All API keys are unavailable ({0}). Use the Manage API Keys command to check availability, or reset exhausted states to recover keys that may have been marked unavailable by mistake.": "所有 API Key 均不可用（{0}）。请使用「管理 API Keys」命令检测可用性，或尝试「重置失效状态」恢复可能被误标记的 Key。",
 	"Balance insufficient": "余额不足",
 	"Key invalid": "Key 无效",
-	"Rate limited (429)": "限流 (429)",
-	"Server error (503)": "服务端繁忙 (503)",
 	"API error": "API 错误",
+
+	// errorRules detail 展示文案（detail 文本经 l10n() 翻译后显示，翻译缺失时原样显示）
+	"invalid bearer token": "无效 key",
+	"Rate limited": "限流",
+	"Server error": "服务端错误",
+	"Server busy": "服务端繁忙",
+	"Gateway error": "网关错误",
+	"Gateway timeout": "网关超时",
 	"Current API key is out of balance, switched to {0} and set it as the current key": "当前 API Key 余额不足，已切换到 {0} 并设为当前使用",
 	"Current API key is unavailable ({0}). Single mode only switches keys on insufficient balance (402); retry later or check via the Manage API Keys command.":
 		"当前 API Key 不可用（{0}）。single 模式仅在余额不足（402）时才自动切换 key；请稍后重试，或使用「管理 API Keys」命令检测/切换。",

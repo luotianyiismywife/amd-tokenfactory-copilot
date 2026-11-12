@@ -6,6 +6,7 @@ import { CommonApi } from "../api/commonApi";
 import {
     getApiKeyMode,
     getApiKeyStore,
+    getErrorRuleReason,
     getSingleKeyFallback,
     getTransientRetryTimes,
     hasTransientExhaustedKey,
@@ -98,7 +99,7 @@ export async function runKeyRotationLoop(params: RotationLoopParams): Promise<vo
         // If every key has failed at least one round, stop trying.
         if (totalKeys > 0 && failedKeys.size >= totalKeys) {
             const detail = [...failedKeys.entries()]
-                .map(([key, rule]) => `${maskApiKey(key)}: ${rule.message ?? rule.code ?? ""}`)
+                .map(([key, rule]) => `${maskApiKey(key)}: ${getErrorRuleReason(rule)}`)
                 .join("; ");
             const hasTransient = [...failedKeys.values()].some((r) => r.action === "rotateCooldown");
             // Platform busy / rate-limited: back off and retry the whole
@@ -217,11 +218,11 @@ export async function runKeyRotationLoop(params: RotationLoopParams): Promise<vo
                 });
                 throw err;
             }
-            // 错误分类（errorRules 四元组：code + message + statusCode + action）
+            // 错误分类（errorRules 三元组：statusCode + detail + action）
             const rule = matchErrorRule(err);
             if (rule?.action === "rotateCooldown" || rule?.action === "rotatePersist") {
                 // 换 key（冷却或持久化失效，由 action 决定）
-                const reason = rule.message ?? rule.code ?? "";
+                const reason = getErrorRuleReason(rule);
                 failedKeys.set(currentEntry.value, rule);
                 await markApiKeyExhausted(secrets, currentEntry.value, reason, rule.action);
                 logger.warn("key.rotation", {

@@ -34,7 +34,7 @@
 |------|------|
 | **Chat 模型提供商** | 实现 `LanguageModelChatProvider`，vendor = `amdtokenfactory` |
 | **双协议支持** | OpenAI 兼容（`/chat/completions`）+ Anthropic（`/v1/messages`），可按模型切换或经设置强制 |
-| **多 API Key 轮询** | SecretStorage 加密存储（`amdTokenFactory.apiKeys`），三种模式：`sticky`（默认，固定一个 key）/ `rotation`（轮询）/ `single`（仅用当前 key）。被动失效检测（`errorRules` 四元组）+ 瞬态整轮重试 + 手动可用性检测 |
+| **多 API Key 轮询** | SecretStorage 加密存储（`amdTokenFactory.apiKeys`），三种模式：`sticky`（默认，固定一个 key）/ `rotation`（轮询）/ `single`（仅用当前 key）。被动失效检测（`errorRules` 三元组：statusCode + detail + action）+ 瞬态整轮重试 + 手动可用性检测 |
 | **云同步（GitHub Gist）** | key/备注 二元组跨机器同步，使用 VS Code 内置 GitHub 登录（无需 PAT）。手动推送/拉取 + 启动自动拉取 + 可选自动推送 |
 | **自动模型发现** | 从 `/v1/models` 拉取实时模型列表，过滤非 chat 端点，隐藏不可用模型 |
 | **流式 + 思考** | SSE 流式、推理内容（**`reasoning` 字段**）、XML ` thinking` 块解析 |
@@ -135,7 +135,7 @@ provideLanguageModelChatResponse(model, messages, options, progress, token)
   │       ├── pickNextApiKey(secrets, apiKeyMode)
   │       ├── 用当前 key 构造 requestHeaders → executeApiRequest()
   │       ├── 成功 → break；曾不可用 → 自愈置可用
-  │       └── 失败: matchErrorRule(err)（errorRules 四元组）
+  │       └── 失败: matchErrorRule(err)（errorRules 三元组：detail → statusCode）
   │           ├── rotateCooldown → 内存冷却 + 换 key
   │           ├── rotatePersist → 持久化 available=false + 换 key
   │           ├── retrySameKey → 不换 key，退避后重试同一个 key
@@ -458,7 +458,7 @@ docs/                                     # 设计文档
 | 位置 | 说明 |
 |------|------|
 | `src/models/apiModelList.ts` → `normalizeModelEntry()` | `/v1/models` 响应解析（`{data:[...]}` 结构，过滤非 chat 端点） |
-| `src/keys/config.ts` → `DEFAULT_ERROR_RULES` | 错误分类规则（401/402 → persist；429/502/503/504 → cooldown；500 → retrySameKey） |
+| `src/keys/config.ts` → `DEFAULT_ERROR_RULES` | 错误分类规则（三元组：statusCode + detail + action；单条规则内匹配优先级 detail → statusCode）。AMD 错误体格式 `{"detail":"..."}`（无 `error.code`），401 规则带 `detail: "invalid bearer token"` 子串匹配（实测签名），statusCode 兜底。`detail` 文本同时用作展示文案（经 `l10n()` 翻译，`getErrorRuleReason()`）。401/402 → persist；429/502/503/504 → cooldown；500 → retrySameKey |
 | `src/models/models.ts` → `BUILT_IN_MODELS[].vision` | 视觉能力兜底 |
 | `src/api/openai/openaiApi.ts` → `prepareRequestBody` | **只发 `reasoning_effort`，绝不发 `thinking`** |
 | `src/api/anthropic/anthropicApi.ts` → `prepareRequestBody` | 同上 |
@@ -472,6 +472,7 @@ docs/                                     # 设计文档
 - [x] 思考内容在 **`reasoning`** 字段（OpenAI）/ **`thinking` 块**（Anthropic）
 - [x] 思考行为**按模型不同**（2026-11-09 实测）：Qwen3.8 / DeepSeek-V4 **可控制**（none 不思考 / 高档位思考）、GLM-5.3 恒思考（none 也产 reasoning）
 - [x] 流式 SSE 标准（`data: {...}` / `[DONE]`）
+- [x] 错误体格式为 `{"detail":"..."}`（**无** `error.code` 字段），如 401 → `{"detail":"Invalid bearer token"}`；封号 key 与无效 key API 层不可区分（同样 401 + 该文本，2026-11-12 实测）
 - [x] 无账号信息端点（余额无意义）
 - [x] 限流特征：401（无效 key）/ 402（余额不足）/ 429（限流）/ 500（内部错误）/ 502/503/504（网关）
 
@@ -588,11 +589,11 @@ AMD 平台当前**不属于**此情形（`/v1/models` 明确返回 `architecture
 
 > `keys/keyManager.ts` 为 barrel，统一导出以下模块的全部 API。
 
-- `keys/config.ts`：`getApiKeyMode` / `getSingleKeyFallback` / `getErrorRules` / `getExhaustedCooldownMin` / `getTransientRetryTimes`；类型 `ErrorAction` / `ErrorRule`
+- `keys/config.ts`：`getApiKeyMode` / `getSingleKeyFallback` / `getErrorRules` / `getExhaustedCooldownMin` / `getTransientRetryTimes`；类型 `ErrorAction` / `ErrorRule`（三元组：statusCode + detail + action，`detail` 为错误体 detail 字段子串匹配、大小写不敏感、兼作展示文案，适配 AMD `{"detail":"..."}` 错误体格式）
 - `keys/store.ts`：`getApiKeyStore` / `saveApiKeyStore` / `invalidateApiKeyStoreCache` / `addApiKey` / `addApiKeys` / `removeApiKey` / `setActiveKey` / `updateApiKey`
 - `keys/state.ts`：`getStoreCache` / `setStoreCache` / `getRotationIndex` / `setRotationIndex` / `getTransientExhaustedMap` / `onApiKeyStoreChanged` / `notifyApiKeyStoreChanged`
 - `keys/selection.ts`：`getPrimaryApiKey` / `pickNextApiKey` / `shouldSingleKeyFallbackSwitch` / `setActiveKeyByValue`
-- `keys/health.ts`：`getTransientExhaustedInfo` / `isApiKeyEligible` / `hasTransientExhaustedKey` / `matchErrorRule` / `isKeyRotationError` / `isTransientRetryError` / `getKeyRotationReason` / `getKeyUnavailableReason` / `markApiKeyExhausted` / `markApiKeyAvailable` / `updateKeyAvailability` / `resetExhaustedKeys` / `getKeyDisplayStatus`
+- `keys/health.ts`：`getTransientExhaustedInfo` / `isApiKeyEligible` / `hasTransientExhaustedKey` / `getErrorRuleReason`（规则展示文案：detail 经 l10n / 状态码查 STATUS_REASON_LABELS）/ `matchErrorRule` / `isKeyRotationError` / `isTransientRetryError` / `getKeyUnavailableReason` / `markApiKeyExhausted` / `markApiKeyAvailable` / `updateKeyAvailability` / `resetExhaustedKeys` / `getKeyDisplayStatus`
 - `keys/availability.ts`：`testKeyAvailability`（最小真实聊天请求）
 - `keys/mask.ts`：`maskApiKey`
 

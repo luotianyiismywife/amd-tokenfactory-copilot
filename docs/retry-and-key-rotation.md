@@ -20,8 +20,8 @@
   │     ⚠️ 不覆盖 429/500/503（交给整轮层，避免两层相乘）
   │
   ├─ ② errorRules 判定（matchErrorRule，<prefix>.errorRules）
-  │     四元组：code + message + statusCode + action，按数组顺序首个命中即生效
-  │     code（错误体 error.code 精确匹配，主要字段）优先于 statusCode（HTTP 兜底）
+  │     三元组：statusCode + detail + action，按数组顺序首个命中即生效
+  │     detail（错误体 detail 字段子串匹配，大小写不敏感）优先于 statusCode（HTTP 兜底）
   │     action=rotateCooldown → 换 key（仅内存冷却）
   │     action=rotatePersist  → 换 key（持久化 available=false）
   │     action=retrySameKey   → 不换 key，退避后重试同一个 key
@@ -35,13 +35,11 @@
 
 | 错误 | 命中规则 | action | 行为 |
 |------|----------|--------|------|
-| **402 余额不足** | `code=INSUFFICIENT_BALANCE` / `statusCode=402` | `rotatePersist` | **换 key**（持久化 `available=false`） |
-| **401 无效 Key** | `statusCode=401` | `rotatePersist` | **换 key**（持久化 `available=false`） |
-| **封号（billing）** | `code=billing` | `rotatePersist` | **换 key**（持久化 `available=false`） |
+| **401 无效 Key** | `detail=invalid bearer token` + `statusCode=401` | `rotatePersist` | **换 key**（持久化 `available=false`） |
+| **402 余额不足** | `statusCode=402` | `rotatePersist` | **换 key**（持久化 `available=false`） |
 | **429 限流** | `statusCode=429` | `rotateCooldown` | **换 key**（仅内存冷却，到期自动恢复） |
-| **503 服务端繁忙** | `statusCode=503` | `rotateCooldown` | **换 key**（仅内存冷却） |
+| **502/503/504 网关/繁忙** | `statusCode=502/503/504` | `rotateCooldown` | **换 key**（仅内存冷却） |
 | **500 内部错误** | `statusCode=500` | `retrySameKey` | **不换 key**——退避后重试**同一个 key** |
-| **上游流中断** | `code=upstream_stream_error` / `statusCode=400` | `retrySameKey` | **不换 key**——退避后重试**同一个 key** |
 | **502/504 网关错误** | — | — | HTTP 层重试（同一请求） |
 | **403 权限** | — | — | 直接报错，不重试不换 key |
 
@@ -89,7 +87,7 @@
 │                                                                   │
 │        rule = matchErrorRule(err)           ← errorRules 四元组   │
 │        if rule.action == rotateCooldown / rotatePersist:  ← 换 key│
-│            标记 key 失效（冷却 / 持久化）                         │
+│            标记 key 失效（冷却 / 持久化）                         │三
 │            continue（换下一个 key）                               │
 │                                                                   │
 │        if rule.action == retrySameKey:      ← 不换 key，同 key    │
@@ -111,32 +109,21 @@
 
 | 设置 | 默认 | 说明 |
 |------|------|------|
-| `<prefix>.errorRules` | 见下 | 错误分类规则（四元组：code + message + statusCode + action）。按数组顺序匹配，首个命中即生效：`code`（错误体 error.code 精确匹配，**主要匹配字段**）优先于 `statusCode`（HTTP 状态码兜底）；`message` 仅作可读性说明**不参与匹配** |
+| `<prefix>.errorRules` | 见下 | 错误分类规则（三元组：statusCode + detail + action）。按数组顺序匹配，首个命中即生效。单条规则内 `detail`（错误体 detail 字段子串匹配，大小写不敏感——AMD 错误体格式 `{"detail":"..."}`，无 `error.code`）优先于 `statusCode`（HTTP 状态码兜底）；`detail` 文本同时用作展示文案（经 `l10n()` 翻译） |
 
-默认规则（`src/keys/config.ts` 的 `DEFAULT_ERROR_RULES`）分两类，**移植时只需关注第二类**：
+默认规则（`src/keys/config.ts` 的 `DEFAULT_ERROR_RULES`，共 7 条）：
 
-#### ① 标准 HTTP 兜底（`statusCode`，通用语义，通常无需改动）
+| statusCode | detail | action | 说明 |
+|-----------|--------|--------|------|
+| `401` | `invalid bearer token` | `rotatePersist` | 无效 key（AMD 实测签名，detail 子串匹配优先，statusCode 兜底） |
+| `402` | — | `rotatePersist` | Payment Required → 余额不足 |
+| `429` | — | `rotateCooldown` | Too Many Requests → 限流 |
+| `502` | — | `rotateCooldown` | Bad Gateway → 网关错误 |
+| `503` | — | `rotateCooldown` | Service Unavailable → 服务端繁忙 |
+| `504` | — | `rotateCooldown` | Gateway Timeout → 网关超时 |
+| `500` | — | `retrySameKey` | Internal Server Error → 平台内部错误 |
 
-| statusCode | action | 说明 |
-|-----------|--------|------|
-| `401` | `rotatePersist` | Unauthorized → 无效 key |
-| `402` | `rotatePersist` | Payment Required → 余额不足 |
-| `429` | `rotateCooldown` | Too Many Requests → 限流 |
-| `503` | `rotateCooldown` | Service Unavailable → 服务端繁忙 |
-| `400` | `retrySameKey` | Bad Request → 上游中断复用 400 |
-| `500` | `retrySameKey` | Internal Server Error → 平台内部错误 |
-
-> 这些是**通用 HTTP 语义**的合理默认映射，任何平台都适用。⚠️ 但"平台实际在什么情况下返回哪个码"仍是平台行为——移植后需按 `.copilot/api-reference.md` 的方法实测验证。
-
-#### ② 平台专属 `code`（示例值，移植必改）
-
-| code | action | 说明 |
-|------|--------|------|
-| `billing` | `rotatePersist` | 计费账户已被冻结（封号） |
-| `upstream_stream_error` | `retrySameKey` | 上游模型流意外中断 |
-| `INSUFFICIENT_BALANCE` | `rotatePersist` | 余额不足 |
-
-> ⚠️ 这些 `code` 是**某平台（SenseAudio）实测的错误码**，纯平台行为。移植时按你平台错误响应体的 `error.code` 替换（无对应概念时删除该行）。
+> `statusCode` 是**通用 HTTP 语义**的合理默认映射，任何平台都适用。⚠️ 但"平台实际在什么情况下返回哪个码"仍是平台行为——移植后需按 `.copilot/api-reference.md` 的方法实测验证。`detail` 是**平台专属实测签名**（AMD 错误体格式 `{"detail":"..."}`），移植时按你平台错误响应体的 `detail` 字段文本替换。
 
 ### 3.2 key 使用模式相关
 
@@ -172,7 +159,7 @@
 }
 ```
 
-行为：`rotatePersist`（401/402/封号）换 key 并持久化失效；`rotateCooldown`（429/503）换 key 并冷却；`retrySameKey`（500/上游中断）不换 key、退避重试同一 key；全部 key 瞬态失败时整轮重试最多 3 次。
+行为：`rotatePersist`（401/402）换 key 并持久化失效；`rotateCooldown`（429/502/503/504）换 key 并冷却；`retrySameKey`（500）不换 key、退避重试同一 key；全部 key 瞬态失败时整轮重试最多 3 次。
 
 ### 4.2 平台 500 频繁，希望更激进地重试
 
@@ -190,7 +177,7 @@
 ```jsonc
 {
   "amdTokenFactory.errorRules": [
-    { "statusCode": 500, "message": "内部错误", "action": "rotatePersist" }
+    { "statusCode": 500, "action": "rotatePersist" }
   ]
 }
 ```
@@ -218,12 +205,12 @@
 ```jsonc
 {
   "amdTokenFactory.errorRules": [
-    { "statusCode": 403, "message": "限流", "action": "rotateCooldown" },
-    { "statusCode": 401, "message": "无效 key", "action": "rotatePersist" },
-    { "statusCode": 402, "message": "余额不足", "action": "rotatePersist" },
-    { "statusCode": 429, "message": "限流", "action": "rotateCooldown" },
-    { "statusCode": 503, "message": "服务端繁忙", "action": "rotateCooldown" },
-    { "statusCode": 500, "message": "内部错误", "action": "retrySameKey" }
+    { "statusCode": 403, "action": "rotateCooldown" },
+    { "detail": "invalid bearer token", "statusCode": 401, "action": "rotatePersist" },
+    { "statusCode": 402, "action": "rotatePersist" },
+    { "statusCode": 429, "action": "rotateCooldown" },
+    { "statusCode": 503, "action": "rotateCooldown" },
+    { "statusCode": 500, "action": "retrySameKey" }
   ]
 }
 ```

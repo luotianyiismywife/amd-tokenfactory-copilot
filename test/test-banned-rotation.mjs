@@ -7,11 +7,11 @@
  *   500 → retrySameKey（不换 key）
  *
  * 覆盖：
- *  1. 401/402 命中轮换 + reason = 规则 message
+ *  1. 401/402 命中轮换 + reason = 规则展示文案（detail 经 l10n / 状态码标签）
  *  2. 确定性失败 → markApiKeyExhausted 持久化 available=false
  *  3. 失效 key 被 pickNextApiKey 跳过
  *  4. 全部 key 失效 → 报错显示脱敏详情
- *  5. 自定义 errorRules（code 可配置）
+ *  5. 自定义 errorRules（detail 可配置）
  *
  * 运行前需 `npm run compile`。
  * 用法：node test/test-banned-rotation.mjs
@@ -53,7 +53,7 @@ function makeSecrets(initial = {}) {
     };
 }
 
-const { isKeyRotationError, getKeyRotationReason, markApiKeyExhausted, isApiKeyEligible } =
+const { isKeyRotationError, getErrorRuleReason, matchErrorRule, markApiKeyExhausted, isApiKeyEligible } =
     require("../out/keys/health.js");
 const { getApiKeyStore, saveApiKeyStore, invalidateApiKeyStoreCache } = require("../out/keys/store.js");
 const { pickNextApiKey } = require("../out/keys/selection.js");
@@ -96,18 +96,18 @@ await check("402 命中 isKeyRotationError", () => {
     assert.equal(isKeyRotationError(apiError(402)), true);
 });
 
-await check("401 reason = 规则的 message 说明", () => {
-    assert.equal(getKeyRotationReason(apiError(401)), "无效 key");
+await check("401 reason = 规则展示文案（detail 经 l10n，英文环境原样）", () => {
+    assert.equal(getErrorRuleReason(matchErrorRule(apiError(401))), "invalid bearer token");
 });
 
 await check("500 不触发轮换（平台侧错误，同 key 重试）", () => {
     assert.equal(isKeyRotationError(apiError(500)), false);
-    assert.equal(getKeyRotationReason(apiError(500)), "内部错误");
+    assert.equal(getErrorRuleReason(matchErrorRule(apiError(500))), "Server error");
 });
 
 await check("403 不在任何规则中 → 不轮换", () => {
     assert.equal(isKeyRotationError(apiError(403)), false);
-    assert.equal(getKeyRotationReason(apiError(403)), undefined);
+    assert.equal(matchErrorRule(apiError(403)), undefined);
 });
 
 // ---------------------------------------------------------------------------
@@ -158,17 +158,17 @@ await check("REASON_TEXT 含 unavailable 文案", () => {
 // ---------------------------------------------------------------------------
 console.log("自定义 errorRules");
 
-await check("自定义规则生效（新增 code）", () => {
-    settings = { errorRules: [{ code: "account_suspended", message: "账号被暂停", action: "rotatePersist" }] };
-    const err = apiError(400, '{"code":"account_suspended"}');
+await check("自定义规则生效（新增 detail）", () => {
+    settings = { errorRules: [{ detail: "account suspended", action: "rotatePersist" }] };
+    const err = apiError(400, '{"detail":"Account Suspended"}');
     assert.equal(isKeyRotationError(err), true);
-    assert.equal(getKeyRotationReason(err), "账号被暂停");
+    assert.equal(getErrorRuleReason(matchErrorRule(err)), "account suspended");
     settings = {};
 });
 
 await check("清空规则后回退默认（401 仍识别）", () => {
     settings = { errorRules: [] };
-    assert.equal(getKeyRotationReason(apiError(401)), "无效 key");
+    assert.equal(getErrorRuleReason(matchErrorRule(apiError(401))), "invalid bearer token");
     settings = {};
 });
 

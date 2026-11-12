@@ -47,7 +47,7 @@ export {
     matchErrorRule,
     isKeyRotationError,
     isTransientRetryError,
-    getKeyRotationReason,
+    getErrorRuleReason,
     getKeyUnavailableReason,
     markApiKeyExhausted,
     markApiKeyAvailable,

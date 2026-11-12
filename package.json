@@ -372,13 +372,9 @@
 					"items": {
 						"type": "object",
 						"properties": {
-							"code": {
+							"detail": {
 								"type": "string",
-								"description": "Error body error.code field (exact match, primary match field)"
-							},
-							"message": {
-								"type": "string",
-								"description": "Descriptive label only (not used for matching)"
+								"description": "Error body detail field (substring match, case-insensitive, takes priority over statusCode). Also used as the display label via l10n. AMD error body format: {\"detail\":\"...\"}"
 							},
 							"statusCode": {
 								"type": "number",
@@ -399,38 +395,32 @@
 					},
 					"default": [
 						{
+							"detail": "invalid bearer token",
 							"statusCode": 401,
-							"message": "无效 key",
 							"action": "rotatePersist"
 						},
 						{
 							"statusCode": 402,
-							"message": "余额不足",
 							"action": "rotatePersist"
 						},
 						{
 							"statusCode": 429,
-							"message": "限流",
 							"action": "rotateCooldown"
 						},
 						{
 							"statusCode": 502,
-							"message": "网关错误",
 							"action": "rotateCooldown"
 						},
 						{
 							"statusCode": 503,
-							"message": "服务端繁忙",
 							"action": "rotateCooldown"
 						},
 						{
 							"statusCode": 504,
-							"message": "网关超时",
 							"action": "rotateCooldown"
 						},
 						{
 							"statusCode": 500,
-							"message": "内部错误",
 							"action": "retrySameKey"
 						}
 					],

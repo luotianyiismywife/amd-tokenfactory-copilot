@@ -3,20 +3,48 @@ import { getErrorRules, getExhaustedCooldownMin, type ErrorAction, type ErrorRul
 import { getTransientExhaustedMap } from "./state";
 import { getApiKeyStore, saveApiKeyStore } from "./store";
 import type { ApiKeyEntry, KeyDisplayStatus } from "./types";
+import { l10n } from "../core/localize";
 
 /**
  * Key 可用性状态：瞬态冷却、轮换错误判定、失效原因提取与状态更新。
  */
 
 /**
- * 从错误消息中提取错误响应体的 `error.code` 字段值（小写）。
- *
- * 错误消息格式（provider 抛出）：`API error: [400] Bad Request\n{...json...}\nURL: ...`，
- * JSON 内含 `"code":"xxx"` 或 `"error":{"code":"xxx"}`。用正则提取第一个
- * `"code":"<value>"` 的值。
+ * 无 `detail` 字段的规则按 HTTP 状态码展示时的文案（l10n key，英文原文）。
  */
-function extractErrorCode(message: string): string | undefined {
-    const m = message.match(/"code"\s*:\s*"([^"]+)"/);
+const STATUS_REASON_LABELS: Record<number, string> = {
+    401: "Key invalid",
+    402: "Balance insufficient",
+    429: "Rate limited",
+    500: "Server error",
+    502: "Gateway error",
+    503: "Server busy",
+    504: "Gateway timeout",
+};
+
+/**
+ * 获取规则的展示文案（供日志 / "全部 key 不可用"报错 / 失效原因显示）。
+ *
+ * - 规则带 `detail` → `l10n(detail)`（翻译缺失时原样显示 detail 文本，
+ *   如 "invalid bearer token" → 中文环境显示 "无效 key"）
+ * - 无 `detail` → 按 `statusCode` 查 `STATUS_REASON_LABELS` 后 `l10n()`
+ */
+export function getErrorRuleReason(rule: ErrorRule): string {
+    if (rule.detail) {
+        return l10n(rule.detail);
+    }
+    return l10n(STATUS_REASON_LABELS[rule.statusCode ?? 0] ?? "API error");
+}
+
+/**
+ * 从错误消息中提取错误响应体的 `detail` 字段值（小写）。
+ *
+ * AMD TokenFactory 错误体格式为 `{"detail":"Invalid bearer token"}`（无
+ * `error.code`），provider 抛出的错误消息内含原始响应体 JSON，用正则提取
+ * 第一个 `"detail":"<value>"` 的值供 `detail` 规则做子串匹配。
+ */
+function extractErrorDetail(message: string): string | undefined {
+    const m = message.match(/"detail"\s*:\s*"([^"]*)"/);
     return m?.[1]?.toLowerCase();
 }
 
@@ -59,11 +87,13 @@ export async function hasTransientExhaustedKey(secrets: vscode.SecretStorage): P
 }
 
 /**
- * 匹配错误分类规则（四元组：code + message + statusCode + action）。
+ * 匹配错误分类规则（三元组：statusCode + detail + action）。
  *
- * **主要匹配错误响应体的 `error.code` 字段**（精确匹配，小写比较）；
- * `message` 仅作可读性说明不参与匹配；`statusCode` 兜底（匹配 `[code]` /
- * `status code` 形式，HTTP 400 被封号和上游中断复用，不能单独作为判据）。
+ * 单条规则内匹配优先级：
+ * 1. **`detail`**：错误响应体的 `detail` 字段**子串匹配**（大小写不敏感）——
+ *    AMD 错误体格式 `{"detail":"..."}`（无 `error.code`），按错误文本分类
+ * 2. **`statusCode`**：HTTP 状态码（匹配 `[code]` / `status code` 形式）
+ *
  * 规则按 `errorRules` 数组顺序匹配，首个命中即生效；均未命中返回 undefined
  * （不轮换、不重试，直接抛错）。
  *
@@ -74,13 +104,17 @@ export async function hasTransientExhaustedKey(secrets: vscode.SecretStorage): P
  */
 export function matchErrorRule(err: unknown): ErrorRule | undefined {
     const message = (err instanceof Error ? err.message : String(err)).toLowerCase();
-    const errorCode = extractErrorCode(message);
+    const errorDetail = extractErrorDetail(message);
     for (const rule of getErrorRules()) {
-        // 主要匹配：错误体 error.code 精确匹配
-        if (rule.code && errorCode === rule.code.toLowerCase()) {
+        // 1. 错误体 detail 字段子串匹配（AMD 格式 {"detail":"..."}）
+        if (
+            rule.detail &&
+            errorDetail !== undefined &&
+            errorDetail.includes(rule.detail.toLowerCase())
+        ) {
             return rule;
         }
-        // 兜底：HTTP 状态码
+        // 2. HTTP 状态码
         if (
             typeof rule.statusCode === "number" &&
             (message.includes(`[${rule.statusCode}]`) || new RegExp(`\\bstatus ${rule.statusCode}\\b`).test(message))
@@ -110,16 +144,9 @@ export function isTransientRetryError(err: unknown): boolean {
 }
 
 /**
- * 从错误中提取失效原因（规则的 `message` 说明，供日志/报错展示）。
- * 均未命中返回 undefined。
- */
-export function getKeyRotationReason(err: unknown): string | undefined {
-    return matchErrorRule(err)?.message;
-}
-
-/**
- * 获取 key 当前不可用的机器可读原因（供"全部 key 不可用"报错展示）：
- * - 瞬态冷却中（429/503）→ "rate_limited" / "server_error"
+ * 获取 key 当前不可用的原因（供"全部 key 不可用"报错展示）：
+ * - 瞬态冷却中 → 冷却表里存的展示文案（`getErrorRuleReason()` 的输出，
+ *   如 "Rate limited" / "无效 key"，本身是 l10n key）
  * - 持久化不可用（available=false）→ "unavailable"
  * - 其他（未检测 / 余额不足 / 封号）→ "balance"
  */
@@ -140,7 +167,8 @@ export function getKeyUnavailableReason(entry: ApiKeyEntry): string {
  * - `rotatePersist` → 持久化 available=false（重启后仍不可用，需手动重置或自愈）
  *
  * 注意：**处置由 `action` 决定，不再靠 `reason` 字符串推断**——`reason` 现在
- * 是规则的 `message` 说明（如 "限流"），若靠它推断会把 429 误持久化为不可用。
+ * 是规则的展示文案（`getErrorRuleReason()` 的输出，如 "无效 key"），若靠它
+ * 推断会把 429 误持久化为不可用。
  */
 export async function markApiKeyExhausted(
     secrets: vscode.SecretStorage,

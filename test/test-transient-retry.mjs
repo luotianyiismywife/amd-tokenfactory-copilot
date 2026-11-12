@@ -1,9 +1,10 @@
 /**
  * 错误分类规则测试（`src/keys/health.ts` 的 `matchErrorRule` + `src/keys/config.ts`）。
  *
- * 核心断言：**四元组（code + message + statusCode + action），只配置一处**：
- * - code（错误体 error.code 精确匹配）是主要匹配字段
- * - message 仅作可读性说明，不参与匹配
+ * 核心断言：**三元组（statusCode + detail + action），只配置一处**：
+ * - detail（错误体 detail 字段子串匹配，大小写不敏感）优先于 statusCode——
+ *   AMD 错误体格式 `{"detail":"..."}`（无 error.code），按错误文本分类；
+ *   detail 文本同时用作展示文案（经 l10n 翻译）
  * - statusCode 兜底
  * - action 与 key 状态一一对应：retrySameKey 状态不变 / rotateCooldown 冷却中 / rotatePersist 不可用
  *
@@ -114,31 +115,65 @@ check("403（不在任何规则中）→ undefined，不轮换不重试", () => 
 });
 
 // ---------------------------------------------------------------------------
-// 3. code 精确匹配（主要匹配字段，优先于 statusCode）
+// 3. detail 子串匹配（AMD 错误体格式 {"detail":"..."}，优先于 statusCode）
 // ---------------------------------------------------------------------------
-console.log("code 精确匹配");
+console.log("detail 子串匹配");
 
-check("code 命中优先于 statusCode", () => {
+check("detail 命中优先于 statusCode（AMD 实测签名）", () => {
     configOverrides["errorRules"] = [
-        { code: "rate_limit_exceeded", message: "限流", action: "rotateCooldown" },
-        { statusCode: 400, message: "兜底", action: "retrySameKey" },
+        { detail: "invalid bearer token", action: "rotatePersist" },
+        { statusCode: 400, action: "retrySameKey" },
     ];
     try {
-        const err = apiError(400, '{"error":{"code":"rate_limit_exceeded"}}');
+        const err = apiError(400, '{"detail":"Invalid bearer token"}');
+        assert.equal(matchErrorRule(err)?.action, "rotatePersist");
+        assert.equal(isKeyRotationError(err), true);
+        assert.equal(isTransientRetryError(err), false);
+    } finally {
+        delete configOverrides["errorRules"];
+    }
+});
+
+check("detail 子串匹配（部分文本即可命中）", () => {
+    configOverrides["errorRules"] = [
+        { detail: "bearer", action: "rotateCooldown" },
+    ];
+    try {
+        const err = apiError(400, '{"detail":"Invalid Bearer Token"}');
         assert.equal(matchErrorRule(err)?.action, "rotateCooldown");
     } finally {
         delete configOverrides["errorRules"];
     }
 });
 
-check("code 大小写不敏感", () => {
-    configOverrides["errorRules"] = [{ code: "MyCode", message: "x", action: "rotatePersist" }];
+check("detail 不命中时回退 statusCode", () => {
+    configOverrides["errorRules"] = [
+        { detail: "quota exceeded", action: "rotateCooldown" },
+        { statusCode: 401, action: "rotatePersist" },
+    ];
     try {
-        const err = apiError(400, '{"code":"mycode"}');
+        const err = apiError(401, '{"detail":"Invalid bearer token"}');
         assert.equal(matchErrorRule(err)?.action, "rotatePersist");
     } finally {
         delete configOverrides["errorRules"];
     }
+});
+
+check("错误体无 detail 字段时不命中 detail 规则", () => {
+    configOverrides["errorRules"] = [
+        { detail: "invalid bearer token", action: "rotatePersist" },
+    ];
+    try {
+        const err = apiError(400, '{"error":{"message":"something else"}}');
+        assert.equal(matchErrorRule(err), undefined);
+    } finally {
+        delete configOverrides["errorRules"];
+    }
+});
+
+check("默认 401 规则带 detail（AMD 真实错误体）仍命中", () => {
+    const err = apiError(401, '{"detail":"Invalid bearer token"}');
+    assert.equal(matchErrorRule(err)?.action, "rotatePersist");
 });
 
 // ---------------------------------------------------------------------------
@@ -146,12 +181,12 @@ check("code 大小写不敏感", () => {
 // ---------------------------------------------------------------------------
 console.log("规则可配置");
 
-check("自定义规则生效（新增 code）", () => {
+check("自定义规则生效（新增 detail）", () => {
     configOverrides["errorRules"] = [
-        { code: "my_custom_code", message: "自定义瞬态错误", action: "retrySameKey" },
+        { detail: "my custom error", action: "retrySameKey" },
     ];
     try {
-        const err = apiError(400, '{"error":{"code":"my_custom_code"}}');
+        const err = apiError(400, '{"detail":"My Custom Error"}');
         assert.equal(matchErrorRule(err)?.action, "retrySameKey");
         assert.equal(isKeyRotationError(err), false);
     } finally {
@@ -160,7 +195,7 @@ check("自定义规则生效（新增 code）", () => {
 });
 
 check("自定义规则生效（改 action）", () => {
-    configOverrides["errorRules"] = [{ statusCode: 429, message: "限流改持久化", action: "rotatePersist" }];
+    configOverrides["errorRules"] = [{ statusCode: 429, action: "rotatePersist" }];
     try {
         const err = apiError(429);
         assert.equal(matchErrorRule(err)?.action, "rotatePersist");
@@ -170,14 +205,15 @@ check("自定义规则生效（改 action）", () => {
     }
 });
 
-check("message 不参与匹配（仅说明）", () => {
+check("含未知字段（code/message）的规则被过滤，不参与匹配", () => {
     configOverrides["errorRules"] = [
-        { code: "billing", message: "这条 message 不会被匹配", action: "rotatePersist" },
+        { code: "billing", message: "x", action: "rotatePersist" },
+        { statusCode: 400, action: "retrySameKey" },
     ];
     try {
-        // message 内容不同但 code 相同 → 仍命中
-        const err = apiError(400, '{"code":"billing","message":"完全不同的消息"}');
-        assert.equal(matchErrorRule(err)?.action, "rotatePersist");
+        // 第一条缺 detail/statusCode 被过滤 → 回落到第二条
+        const err = apiError(400, '{"code":"billing"}');
+        assert.equal(matchErrorRule(err)?.action, "retrySameKey");
     } finally {
         delete configOverrides["errorRules"];
     }
