@@ -15,7 +15,8 @@
 | `test-transient-retry.mjs` | 离线 | **错误分类规则**（17 项断言）：401/402 → rotatePersist、429/502/503/504 → rotateCooldown、500 → retrySameKey、403 不命中、detail 子串匹配优先于 statusCode、规则可配置、未知字段过滤、`markApiKeyExhausted` 由 action 决定处置 |
 | `test-keys.mjs` | 离线 | **Key 选择与状态**（18 项断言）：rotation 游标前移 / sticky 钉住 / single active、跳过不可用与冷却 key、single fallback 判定、store 增删改（冲突校验）、旧版单 key 迁移 |
 | `test-rotation.mjs` | 离线 | **轮换循环**（7 项断言）：成功路径、402 换 key（持久化）、429 换 key（仅冷却）、500 不换 key（同 key 重试）、全部失败报错（脱敏）、取消立即抛出、single 余额不足降级 rotation |
-| `test-banned-rotation.mjs` | 离线 | **Key 失效与轮换**（11 项断言）：401/402 命中轮换 + reason、500 不轮换、403 不命中、持久化 available=false、失效 key 被跳过、`REASON_TEXT`、自定义 errorRules |
+| `test-banned-rotation.mjs` | 离线 | **Key 失效与轮换**（14 项断言）：401/402 命中轮换 + reason、500 不轮换、403 不命中、持久化 available=false、失效 key 被跳过、`REASON_TEXT`、自定义 errorRules、**展示状态（持久不可用优先于瞬态冷却，不被冷却遮罩）** |
+| `test-availability.mjs` | 离线 | **Key 可用性检测**（10 项断言）：200 可用 / 401 不可用 / 402 余额不足 / 500 与网络错误无法确认；**候选模型回退**（首个模型 429 或 400 model-not-supported → 换下一个拿到 200 → 可用；全部 429 → 可用 rateLimited；429 后遇 401/402 → 确定性结论优先） |
 | `test-vision-history.mjs` | 离线 | 跨轮视觉历史编解码 + 双 API 转换器闭环（含空 reasoning_content 回归） |
 | `test-anthropic-tool-result-merge.mjs` | 离线 | Anthropic 连续工具结果合并（3 个并行 tool_use 结果合并为单条 user 消息） |
 | `test-anthropic-image-index.mjs` | 离线 | Anthropic 图片索引按 part 顺序内联分配 |

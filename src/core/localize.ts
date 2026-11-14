@@ -114,6 +114,7 @@ const zhCN: Record<string, string> = {
 	"Reset exhausted key states": "已重置失效状态",
 	"Checking availability...": "正在检测可用性...",
 	"Key is available": "检测通过：Key 可用",
+	"Key is available (model busy, rate limited)": "检测通过：Key 可用（模型繁忙/限流，鉴权已通过）",
 	"Key is invalid (401)": "Key 无效（401），标记为不可用",
 	"Unable to determine availability, please retry later": "无法确定可用性，请稍后重试",
 	"All API keys are temporarily unavailable ({0}). Please retry later.": "所有 API Key 暂时不可用（{0}），请稍后重试。",

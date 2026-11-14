@@ -7,7 +7,7 @@ import type {
     ProvideLanguageModelChatResponseOptions,
 } from "vscode";
 import type { ProviderModelItem } from "../core/types";
-import { createRetryConfig, executeWithRetry } from "../core/utils";
+import { createRetryConfig, executeWithRetry, withHttpStatus } from "../core/utils";
 import { logger } from "../core/logger";
 import { OpenaiApi } from "../api/openai/openaiApi";
 import { AnthropicApi } from "../api/anthropic/anthropicApi";
@@ -176,8 +176,11 @@ export async function executeApiRequest(params: ApiRequestParams): Promise<void>
                 if (errorText.includes("image is sensitive")) {
                     throw new Error(`IMAGE_SENSITIVE: ${errorText}`);
                 }
-                throw new Error(
-                    `Anthropic API error: [${res.status}] ${res.statusText}${errorText ? `\n${errorText}` : ""}\nURL: ${url}`
+                throw withHttpStatus(
+                    new Error(
+                        `Anthropic API error: [${res.status}] ${res.statusText}${errorText ? `\n${errorText}` : ""}\nURL: ${url}`
+                    ),
+                    res.status
                 );
             }
 
@@ -234,8 +237,11 @@ export async function executeApiRequest(params: ApiRequestParams): Promise<void>
                 if (errorText.includes("image is sensitive")) {
                     throw new Error(`IMAGE_SENSITIVE: ${errorText}`);
                 }
-                throw new Error(
-                    `API error: [${res.status}] ${res.statusText}${errorText ? `\n${errorText}` : ""}\nURL: ${url}`
+                throw withHttpStatus(
+                    new Error(
+                        `API error: [${res.status}] ${res.statusText}${errorText ? `\n${errorText}` : ""}\nURL: ${url}`
+                    ),
+                    res.status
                 );
             }
 

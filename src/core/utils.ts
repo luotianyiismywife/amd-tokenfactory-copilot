@@ -33,6 +33,22 @@ const networkErrorPatterns = [
 ];
 
 /**
+ * 给错误对象附加 HTTP 状态码（供 `matchErrorRule` 精确匹配）。
+ *
+ * 错误消息里虽然也带 `[<status>]`，但消息可能被包装/截断/改写，靠正则从文本
+ * 里提取状态码并不牢靠。把状态码直接挂在 Error 上，规则匹配优先读它，
+ * 文本匹配降为兜底。
+ *
+ * @param err 原始错误。
+ * @param status HTTP 状态码。
+ * @returns 同一个错误对象（已附加 `status` 属性）。
+ */
+export function withHttpStatus<T extends Error>(err: T, status: number): T {
+    (err as T & { status?: number }).status = status;
+    return err;
+}
+
+/**
  * Map VS Code message role to OpenAI message role string.
  */
 export function mapRole(message: vscode.LanguageModelChatRequestMessage): "user" | "assistant" | "system" {

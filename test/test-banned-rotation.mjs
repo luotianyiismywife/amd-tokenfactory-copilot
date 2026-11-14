@@ -53,8 +53,16 @@ function makeSecrets(initial = {}) {
     };
 }
 
-const { isKeyRotationError, getErrorRuleReason, matchErrorRule, markApiKeyExhausted, isApiKeyEligible } =
-    require("../out/keys/health.js");
+const {
+    isKeyRotationError,
+    getErrorRuleReason,
+    matchErrorRule,
+    markApiKeyExhausted,
+    isApiKeyEligible,
+    getKeyDisplayStatus,
+    getTransientExhaustedInfo,
+    updateKeyAvailability,
+} = require("../out/keys/health.js");
 const { getApiKeyStore, saveApiKeyStore, invalidateApiKeyStoreCache } = require("../out/keys/store.js");
 const { pickNextApiKey } = require("../out/keys/selection.js");
 const { resetExhaustedKeys } = require("../out/keys/health.js");
@@ -151,6 +159,45 @@ console.log("报错文案");
 
 await check("REASON_TEXT 含 unavailable 文案", () => {
     assert.equal(REASON_TEXT["unavailable"], "Unavailable");
+});
+
+// ---------------------------------------------------------------------------
+// 4b. 展示状态：持久不可用不被瞬态冷却遮罩
+// ---------------------------------------------------------------------------
+console.log("展示状态");
+
+await check("先 429 冷却、后 401 失效 → 显示 unavailable（不是 cooldown）", async () => {
+    const secrets = makeSecrets();
+    await reset(secrets, [K("a")]);
+    // 先命中 429：仅内存冷却
+    await markApiKeyExhausted(secrets, "a", "限流", "rotateCooldown");
+    let store = await getApiKeyStore(secrets);
+    assert.equal(getKeyDisplayStatus(store.keys[0]), "cooldown");
+    // 再命中 401：持久化不可用，必须清掉陈旧冷却
+    await markApiKeyExhausted(secrets, "a", "无效 key", "rotatePersist");
+    store = await getApiKeyStore(secrets);
+    assert.equal(store.keys[0].available, false);
+    assert.equal(getTransientExhaustedInfo("a"), undefined, "陈旧冷却条目应被清除");
+    assert.equal(getKeyDisplayStatus(store.keys[0]), "unavailable");
+});
+
+await check("冷却中 + 手动检测判定不可用 → 显示 unavailable", async () => {
+    const secrets = makeSecrets();
+    await reset(secrets, [K("a")]);
+    await markApiKeyExhausted(secrets, "a", "限流", "rotateCooldown");
+    await updateKeyAvailability(secrets, "a", false);
+    const store = await getApiKeyStore(secrets);
+    assert.equal(getTransientExhaustedInfo("a"), undefined);
+    assert.equal(getKeyDisplayStatus(store.keys[0]), "unavailable");
+});
+
+await check("冷却中 + 手动检测判定可用 → 显示 available", async () => {
+    const secrets = makeSecrets();
+    await reset(secrets, [K("a")]);
+    await markApiKeyExhausted(secrets, "a", "限流", "rotateCooldown");
+    await updateKeyAvailability(secrets, "a", true);
+    const store = await getApiKeyStore(secrets);
+    assert.equal(getKeyDisplayStatus(store.keys[0]), "available");
 });
 
 // ---------------------------------------------------------------------------

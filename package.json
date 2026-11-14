@@ -499,7 +499,7 @@
 		"lint": "eslint",
 		"watch": "tsc -watch -p ./",
 		"test": "npm run compile && npm run test:offline",
-		"test:offline": "node test/test-transient-retry.mjs && node test/test-keys.mjs && node test/test-rotation.mjs && node test/test-banned-rotation.mjs && node test/test-vision-history.mjs && node test/test-anthropic-tool-result-merge.mjs && node test/test-anthropic-image-index.mjs && node test/test-anthropic-vision-order.mjs && node test/test-image-dimensions.mjs && node test/test-sse-stream.mjs && node test/test-split-tool-call-args.mjs && node test/test-batch-import.mjs && node test/test-cloud-sync-auto-push.mjs && node test/test-cloud-sync-flow.mjs",
+		"test:offline": "node test/test-transient-retry.mjs && node test/test-keys.mjs && node test/test-rotation.mjs && node test/test-banned-rotation.mjs && node test/test-availability.mjs && node test/test-vision-history.mjs && node test/test-anthropic-tool-result-merge.mjs && node test/test-anthropic-image-index.mjs && node test/test-anthropic-vision-order.mjs && node test/test-image-dimensions.mjs && node test/test-sse-stream.mjs && node test/test-split-tool-call-args.mjs && node test/test-batch-import.mjs && node test/test-cloud-sync-auto-push.mjs && node test/test-cloud-sync-flow.mjs",
 		"test:e2e": "node test/test-cloud-sync-e2e.mjs",
 		"build": "node scripts/build/package-vsix.mjs",
 		"postinstall": "node scripts/build/copy-tokenizer.js"

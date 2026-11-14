@@ -2,11 +2,19 @@
 
 本文件记录 amd-tokenfactory-copilot 的用户可感知变更。格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/),版本号遵循语义化版本(新功能升 y,修 bug/调整升 z)。
 
-## [2.0.4] - 2026-11-09
+## [2.0.4] - 2026-11-14
 
 ### 修复
 
+- **「检测可用性」永远返回「无法确认」**：检测用的测试模型取自 `/v1/models` 缓存的**第一个**模型，而列表第一个通常是平台最热门、长期打满并发的 `DeepSeek-V4.1-Flash`（实测恒返回 429 `at its concurrency limit (192)`）。旧判定把 429 归入「无法确认」，于是**可用 key 也永远检测不出可用**。现改为按候选列表依次尝试（最多 5 个），遇到 429 / 400 `model not supported` / 404 / 5xx 换下一个模型；全部候选都 429 时按**可用**处理（429 说明鉴权已通过，无效 key 返回的是 401）。实测：可用 key 打 `DeepSeek-V4-Flash` / `GLM-5.3-Flash` / `Qwen3.8-27B` / `Gemma-4-31B-IT` / `MiMo-V2.6-Flash` 均 200。
+- **402 余额不足被归入「无法确认」**：AMD 每个账号每天固定 $1 额度，额度耗尽返回 402，这是最常见的「不可用」场景。现明确判为**不可用**（`reason: balance`），与 401 一致。
+- **`matchErrorRule` 依赖错误消息文本提取状态码**：此前只能从消息里正则匹配 `[401]` / `status 401`，消息一旦被包装或截断就匹配不到，会误落到其它规则（例如把 401 当成 429 冷却）。现 `apiDispatch.ts` / `httpClient.ts` 抛错时用 `withHttpStatus()` 把状态码直接挂到 Error 对象上，`matchErrorRule` **优先读该属性**，文本匹配降为兜底。
+- **401 失效被显示成「冷却中」（持久不可用被瞬态冷却遮罩）**：`getKeyDisplayStatus()` 原先**先查瞬态冷却表、后查 `available`**，而 `markApiKeyExhausted()` 的 `rotatePersist` 分支与 `updateKeyAvailability(false)` 都**不清理**该 key 残留的冷却条目。于是同一个 key 先命中 429（写入冷却）再命中 401（写入 `available=false`）时，界面在整个冷却窗口内都显示「冷却中 (Ns)」——配合 `apiKeyExhaustedCooldownMin: 1` 就是用户看到的「401 只标成 1 分钟冷却」，冷却到期后才露出「不可用」。现改为：① `getKeyDisplayStatus()` 中 `available === false` **优先级最高**（持久失效压过瞬态冷却）；② `rotatePersist` 分支与 `updateKeyAvailability()` 写入时**清除该 key 的陈旧冷却条目**。
 - **思考档位选择器顺序错乱（`minimal` 排在 `max` 之后）**：模型选择器的档位选项按 `models.ts` 的 `supportedReasoningEfforts` 数组顺序渲染（`registry.ts` 原样透传，不做排序），此前 `minimal` 被追加在数组末尾，导致选择器显示为「禁用思考 / 低 / 中 / 高 / 超高 / 极高 / 最小」——最低强度跑到最高强度右边了。现按强度升序重排为 `["minimal", "low", "medium", "high", "xhigh", "max"]`，涉及 `DeepSeek-V4.1-Flash` / `DeepSeek-V4-Flash` / `Gemma-4-31B-IT` / `MiMo-V2.6-Flash` 四个模型；`probe-reasoning-efforts.mjs` 的 `ALL_EFFORTS` 同步改为升序（探测输出的 `models.ts` 建议顺序随之正确）。
+
+### 新增
+
+- **`test/test-availability.mjs`**（离线，10 项断言）：覆盖 200/401/402/500/网络错误判定，以及候选模型回退（首个 429 或 400 → 换下一个拿到 200 → 可用；全部 429 → 可用 `rateLimited`；429 后遇 401/402 → 确定性结论优先）。
 
 ### 重构
 

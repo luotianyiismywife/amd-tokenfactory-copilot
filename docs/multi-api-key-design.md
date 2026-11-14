@@ -121,7 +121,7 @@ const transientExhausted = new Map<string, TransientExhausted>();
 | `isTransientRetryError(err)` | 同步 | 命中 `retrySameKey`/`rotateCooldown` 规则 → 瞬态类，值得整轮自动重试（`rotatePersist` 为确定性） |
 | `getErrorRuleReason(rule)` | 同步 | 取规则的展示文案：`detail` 经 `l10n()` 翻译（翻译缺失原样显示）；无 `detail` 按 `statusCode` 查 `STATUS_REASON_LABELS` |
 | `getKeyUnavailableReason(entry)` | 同步 | 取当前不可用原因（供报错展示）：冷却中→展示文案（`getErrorRuleReason()` 输出）；持久化不可用→`unavailable`；其他→`balance` |
-| `markApiKeyExhausted(secrets, key, reason, action)` | 异步 | 按 `action` 处置：`rotateCooldown` → 仅内存冷却不持久化；`rotatePersist` → 持久化 `available=false` |
+| `markApiKeyExhausted(secrets, key, reason, action)` | 异步 | 按 `action` 处置：`rotateCooldown` → 仅内存冷却不持久化；`rotatePersist` → 持久化 `available=false` **并清除该 key 的陈旧冷却条目**（确定性结论优先，避免显示层把「不可用」遮成「冷却中」） |
 | `markApiKeyAvailable(secrets, key)` | 异步 | 置 `available=true`，清冷却（自愈/手动检测通过） |
 | `updateKeyAvailability(secrets, key, available)` | 异步 | 通用状态更新 |
 | `resetExhaustedKeys(secrets, resetPersisted)` | 异步 | 清空瞬态冷却；可选将所有 `available=false` 重置为 `null`（`resetPersisted=true`） |
@@ -131,7 +131,7 @@ const transientExhausted = new Map<string, TransientExhausted>();
 | `removeApiKey(secrets, index)` | 异步 | 删除；调整 activeIndex 与轮询游标；**同步清理该 key 的瞬态冷却条目** |
 | `setActiveKey(secrets, index)` | 异步 | 设置当前使用的 key（single 的 active key / sticky 钉住的 key） |
 | `setKeyCredential(secrets, index, credential?)` | 异步 | 绑定/更新/清除指定 key 的平台登录凭据 |
-| `getKeyDisplayStatus(entry)` | 同步 | `available` / `unavailable` / `unknown` / `cooldown`（供 QuickPick UI） |
+| `getKeyDisplayStatus(entry)` | 同步 | `available` / `unavailable` / `unknown` / `cooldown`（供 QuickPick UI）。**优先级：`available===false` → `unavailable` 最高**（持久失效压过瞬态冷却），其次冷却中 → `cooldown`，再次 `available===true` → `available`，否则 `unknown` |
 | `maskApiKey(key)` / `maskCredential(credential)` | 同步 | `sk_****abcd` / `sess_****abcd` 脱敏 |
 
 ### 3.2 `pickNextApiKey` 选择逻辑
@@ -171,9 +171,11 @@ pickNextApiKey(secrets, mode):
 | `getAccountInfoCached(token, ttlSec)` | 异步 | TTL 缓存；失败返回 undefined（UI 显示"余额未知"） |
 | `formatExpiryDate(epochSec)` | 同步 | 格式化代金券到期日为 `YYYY-MM-DD`（本地时区）；无到期/非法返回空串 |
 | `POINTS_PER_CNY` ★ | 常量 | 积分 → 元 换算比例（**移植时实测校正**） |
-| `testKeyAvailability(entry, baseUrl)` | 异步 | 手动检测：**发最小真实聊天请求**（`say ok`、`max_tokens=8`）：402/INSUFFICIENT_BALANCE → `{ok:false, reason:"balance"}`，401 → `{ok:false, reason:"invalid"}`，200 → `{ok:true}`；网络/超时 → `{ok:null}` 无法确定 |
+| `testKeyAvailability(entry, baseUrl)` | 异步 | 手动检测：**发最小真实聊天请求**（`say ok`、`max_tokens=8`）：2xx → `{ok:true}`；401 → `{ok:false, reason:"invalid"}`；402/INSUFFICIENT_BALANCE → `{ok:false, reason:"balance"}`；429 → `{ok:true, reason:"rateLimited"}`（鉴权已通过，只是模型并发/限流）；其他（400/404/5xx/网络/超时）→ `{ok:null}` 无法确定 |
 
 > 手动检测"请求一次"为什么用真实聊天请求而非 `/v1/models`：**实测余额不足时 `/v1/models` 仍返回 200**（模型列表不校验余额），无法区分"余额不足"与"正常可用"；而真实请求在余额不足时被 402 拦截，**不消耗 token**，语义明确。
+>
+> ⚠️ **测试模型不能只取列表第一个**（2026-11-14 实测）：`/v1/models` 的第一个通常是平台最热门模型（`DeepSeek-V4.1-Flash`），长期处于并发上限返回 429，会让可用 key 永远落到"无法确认"。现按候选列表依次尝试（最多 5 个），遇到 429 / 400 `model not supported` / 404 / 5xx 换下一个；全部候选都 429 时按可用处理（429 说明鉴权已通过，无效 key 返回的是 401）。
 
 ### 3.4 `src/provider/rotation.ts` — 轮换循环
 

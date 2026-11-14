@@ -411,7 +411,7 @@ docs/                                     # 设计文档
 | `keys/store.ts` | SecretStorage 读写与旧版单 key 迁移、增删改 | 多 key 存储 |
 | `keys/selection.ts` | `getPrimaryApiKey` / `pickNextApiKey` / `shouldSingleKeyFallbackSwitch` / `setActiveKeyByValue` | key 选择 |
 | `keys/health.ts` | 瞬态冷却、`matchErrorRule`、失效原因、状态更新 | key 健康 |
-| `keys/availability.ts` | `testKeyAvailability`（最小真实聊天请求） | key 可用性 |
+| `keys/availability.ts` | `testKeyAvailability`（最小真实聊天请求，候选模型回退） | key 可用性 |
 | `models/models.ts` | 内置模型清单（唯一手工维护的模型表）+ 默认值 | 模型定义 |
 | `models/apiModelList.ts` | API 模型列表获取（`/v1/models`），5 分钟缓存，静默降级 | 模型列表 |
 | `models/visionModels.ts` | 视觉能力判定（纯解析器：API 标记 → models.dev，不参与内置清单） | 视觉能力 |
@@ -593,8 +593,11 @@ AMD 平台当前**不属于**此情形（`/v1/models` 明确返回 `architecture
 - `keys/store.ts`：`getApiKeyStore` / `saveApiKeyStore` / `invalidateApiKeyStoreCache` / `addApiKey` / `addApiKeys` / `removeApiKey` / `setActiveKey` / `updateApiKey`
 - `keys/state.ts`：`getStoreCache` / `setStoreCache` / `getRotationIndex` / `setRotationIndex` / `getTransientExhaustedMap` / `onApiKeyStoreChanged` / `notifyApiKeyStoreChanged`
 - `keys/selection.ts`：`getPrimaryApiKey` / `pickNextApiKey` / `shouldSingleKeyFallbackSwitch` / `setActiveKeyByValue`
-- `keys/health.ts`：`getTransientExhaustedInfo` / `isApiKeyEligible` / `hasTransientExhaustedKey` / `getErrorRuleReason`（规则展示文案：detail 经 l10n / 状态码查 STATUS_REASON_LABELS）/ `matchErrorRule` / `isKeyRotationError` / `isTransientRetryError` / `getKeyUnavailableReason` / `markApiKeyExhausted` / `markApiKeyAvailable` / `updateKeyAvailability` / `resetExhaustedKeys` / `getKeyDisplayStatus`
+- `keys/health.ts`：`getTransientExhaustedInfo` / `isApiKeyEligible` / `hasTransientExhaustedKey` / `getErrorRuleReason`（规则展示文案：detail 经 l10n / 状态码查 STATUS_REASON_LABELS）/ `matchErrorRule`（优先读错误对象上 `withHttpStatus()` 附加的 `status`，其次匹配消息文本 `[code]` / `status code`）/ `isKeyRotationError` / `isTransientRetryError` / `getKeyUnavailableReason` / `markApiKeyExhausted`（`rotatePersist` 分支同时清除该 key 的陈旧冷却条目）/ `markApiKeyAvailable` / `updateKeyAvailability`（总是清除冷却条目）/ `resetExhaustedKeys` / `getKeyDisplayStatus`（**优先级：`available===false` → `unavailable` 最高**，其次 `cooldown`，再次 `available`，否则 `unknown`——持久失效不得被瞬态冷却遮罩）
 - `keys/availability.ts`：`testKeyAvailability`（最小真实聊天请求）
+  - 判定：2xx → 可用；401 → 不可用（invalid）；402 / `INSUFFICIENT_BALANCE` / 余额不足 → 不可用（balance）；429 → 可用（rateLimited，鉴权已通过）；其他（400/404/5xx/网络/超时）→ 无法确认（ok: null）
+  - 候选模型：`pickTestModelIds()` 取 `/v1/models` 缓存前 5 个（已过滤非 chat 端点），缓存空时用 `FALLBACK_TEST_MODEL_ID`；遇到 429 / 400(model not supported) / 404 / 5xx 换下一个候选，全部 429 时按可用处理
+  - ⚠️ 不能只取列表第一个：第一个通常是平台最热门模型（`DeepSeek-V4.1-Flash`），长期 429 会让可用 key 永远落到"无法确认"（2026-11-14 实测）
 - `keys/mask.ts`：`maskApiKey`
 
 ### 5.4 `src/provider/` 模块
@@ -655,7 +658,7 @@ AMD 平台当前**不属于**此情形（`/v1/models` 明确返回 `architecture
 - `logger.ts`：`Logger` 类（`init` / `debug` / `info` / `warn` / `error` / `sanitizeHeaders` / `dispose`）+ `logger` 单例
 - `localize.ts`：`l10n(key)` / `l10nFormat(template, ...args)`
 - `types.ts`：`ProviderModelItem` / `ModelPreset` / `RetryConfig` 等
-- `utils.ts`：`mapRole` / `convertToolsToOpenAI` / `createRetryConfig` / `executeWithRetry` / `isRetryableError` / `isImageMimeType` / `createDataUrl` / `arrayBufferToBase64` / `isToolResultPart` / `tryParseJSONObject` / `parseToolCallArguments` / `repairJsonText` / `splitToolCallArguments` / `storeDataUriImages` / `replaceDataUriImages`
+- `utils.ts`：`mapRole` / `convertToolsToOpenAI` / `createRetryConfig` / `executeWithRetry` / `isRetryableError` / `withHttpStatus`（把 HTTP 状态码挂到 Error 上，供 `matchErrorRule` 精确匹配）/ `isImageMimeType` / `createDataUrl` / `arrayBufferToBase64` / `isToolResultPart` / `tryParseJSONObject` / `parseToolCallArguments` / `repairJsonText` / `splitToolCallArguments` / `storeDataUriImages` / `replaceDataUriImages`
 - `versionManager.ts`：`VersionManager`（`getVersion` / `getUserAgent` / `getClientInfo`）
 
 ### 5.9 `src/cloud/` 模块

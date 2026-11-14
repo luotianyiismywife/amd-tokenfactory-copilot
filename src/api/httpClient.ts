@@ -6,6 +6,8 @@
  * 响应体与 URL），便于排查。
  */
 
+import { withHttpStatus } from "../core/utils";
+
 /**
  * 发送 JSON POST 请求并校验响应状态。
  *
@@ -33,8 +35,11 @@ export async function postJson(
 
     if (!response.ok) {
         const errorText = await response.text();
-        throw new Error(
-            `${errorPrefix}: [${response.status}] ${response.statusText}${errorText ? `\n${errorText}` : ""}\nURL: ${url}`
+        throw withHttpStatus(
+            new Error(
+                `${errorPrefix}: [${response.status}] ${response.statusText}${errorText ? `\n${errorText}` : ""}\nURL: ${url}`
+            ),
+            response.status
         );
     }
 

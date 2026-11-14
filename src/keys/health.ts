@@ -105,6 +105,10 @@ export async function hasTransientExhaustedKey(secrets: vscode.SecretStorage): P
 export function matchErrorRule(err: unknown): ErrorRule | undefined {
     const message = (err instanceof Error ? err.message : String(err)).toLowerCase();
     const errorDetail = extractErrorDetail(message);
+    // 错误对象上附加的 HTTP 状态码（`withHttpStatus()`，apiDispatch / httpClient 抛错时写入）。
+    // 比从消息文本里正则提取更可靠：消息可能被包装/截断，导致 `[401]` 丢失而误落到其它规则。
+    const attachedStatus = (err as { status?: unknown } | null | undefined)?.status;
+    const statusCode = typeof attachedStatus === "number" ? attachedStatus : undefined;
     for (const rule of getErrorRules()) {
         // 1. 错误体 detail 字段子串匹配（AMD 格式 {"detail":"..."}）
         if (
@@ -114,10 +118,12 @@ export function matchErrorRule(err: unknown): ErrorRule | undefined {
         ) {
             return rule;
         }
-        // 2. HTTP 状态码
+        // 2. HTTP 状态码（优先读错误对象上的 status，其次匹配消息文本）
         if (
             typeof rule.statusCode === "number" &&
-            (message.includes(`[${rule.statusCode}]`) || new RegExp(`\\bstatus ${rule.statusCode}\\b`).test(message))
+            (statusCode === rule.statusCode ||
+                message.includes(`[${rule.statusCode}]`) ||
+                new RegExp(`\\bstatus ${rule.statusCode}\\b`).test(message))
         ) {
             return rule;
         }
@@ -188,6 +194,10 @@ export async function markApiKeyExhausted(
     }
     entry.available = false;
     entry.lastCheckedAt = Date.now();
+    // 持久化失效是确定性结论，必须清掉可能残留的瞬态冷却条目：
+    // 否则 `getKeyDisplayStatus()` 会先命中冷却分支，把「不可用」显示成
+    // 「冷却中 (Ns)」，冷却到期后才露出真相（用户报的「401 只标成 1 分钟冷却」）。
+    getTransientExhaustedMap().delete(keyValue);
     await saveApiKeyStore(secrets, store);
 }
 
@@ -217,9 +227,9 @@ export async function updateKeyAvailability(
     }
     entry.available = available;
     entry.lastCheckedAt = Date.now();
-    if (available !== false) {
-        getTransientExhaustedMap().delete(keyValue);
-    }
+    // 手动检测是确定性结论（可用 / 不可用 / 未检测），一律清掉陈旧冷却条目：
+    // 否则显示层会把「不可用」遮成「冷却中」，或让已恢复的 key 继续被跳过。
+    getTransientExhaustedMap().delete(keyValue);
     await saveApiKeyStore(secrets, store);
 }
 
@@ -244,15 +254,18 @@ export async function resetExhaustedKeys(secrets: vscode.SecretStorage, resetPer
 
 /** 获取 key 的展示状态：available / unavailable / unknown / cooldown */
 export function getKeyDisplayStatus(entry: ApiKeyEntry): KeyDisplayStatus {
+    // 持久化不可用（401/402 等确定性失效）优先于瞬态冷却：两者可能同时存在
+    // （先 429 冷却、后 401 失效），此时必须显示「不可用」——否则冷却窗口内
+    // 会一直显示「冷却中 (Ns)」，看起来像 401 只被标成了短暂冷却。
+    if (entry.available === false) {
+        return "unavailable";
+    }
     const transient = getTransientExhaustedInfo(entry.value);
     if (transient) {
         return "cooldown";
     }
     if (entry.available === true) {
         return "available";
-    }
-    if (entry.available === false) {
-        return "unavailable";
     }
     return "unknown";
 }

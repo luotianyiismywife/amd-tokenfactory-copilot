@@ -237,7 +237,12 @@ export async function checkAvailabilityFlow(ctx: KeyManagerContext, index: numbe
             const result = await testKeyAvailability(entry);
             if (result.ok === true) {
                 await updateKeyAvailability(ctx.secrets, entry.value, true);
-                vscode.window.showInformationMessage(l10n("Key is available"));
+                if (result.reason === "rateLimited") {
+                    // 429 = 鉴权已通过，只是模型并发/限流 → key 本身有效
+                    vscode.window.showInformationMessage(l10n("Key is available (model busy, rate limited)"));
+                } else {
+                    vscode.window.showInformationMessage(l10n("Key is available"));
+                }
             } else if (result.ok === false) {
                 await updateKeyAvailability(ctx.secrets, entry.value, false);
                 if (result.reason === "balance") {
