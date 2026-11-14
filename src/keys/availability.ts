@@ -13,7 +13,8 @@ import { API_BASE_URL, FALLBACK_TEST_MODEL_ID } from "../platform/platformConfig
  * - 401            → 不可用（key 无效 / 封号，API 层不可区分）
  * - 402 / 余额不足  → 不可用（当日额度耗尽）
  * - 429            → 可用（鉴权已通过，只是模型并发/限流；key 本身有效）
- * - 其他（400/404/5xx/网络/超时）→ 无法确认
+ * - 400 / 404 / 5xx → 测试模型选错或平台侧异常，换下一个候选模型重试
+ * - 网络错误 / 全部候选超时 → 无法确认
  *
  * ⚠️ 测试模型不能只取 `/v1/models` 的第一个：列表第一个通常是平台最热门的模型
  * （如 `DeepSeek-V4.1-Flash`），长期处于并发上限返回 429，会让检测永远落到
@@ -21,9 +22,15 @@ import { API_BASE_URL, FALLBACK_TEST_MODEL_ID } from "../platform/platformConfig
  * （`at its concurrency limit (192)`），打 `DeepSeek-V4-Flash` / `GLM-5.3-Flash` /
  * `Qwen3.8-27B` / `Gemma-4-31B-IT` / `MiMo-V2.6-Flash` 均 200。
  * 因此按候选列表依次尝试，遇到"模型不支持/不存在"类错误换下一个。
+ *
+ * ⚠️ 单个候选超时也必须换下一个（不能直接判无法确认）：`Gemma-4-31B-IT` 实测
+ * 首次请求 28.3s，而其他模型 1-7s。超时只说明该模型慢，不代表 key 无效。
  */
 
-const REQUEST_TIMEOUT_MS = 20_000;
+/** 单个候选模型的请求超时（毫秒）。`Gemma-4-31B-IT` 实测首次 28.3s，需留余量。 */
+const REQUEST_TIMEOUT_MS = 30_000;
+/** 全部候选尝试的总时间预算（毫秒）——避免慢模型把检测拖成分钟级。 */
+const TOTAL_BUDGET_MS = 60_000;
 /** 最多尝试多少个候选测试模型（模型不支持/不存在时换下一个）。 */
 const MAX_TEST_MODELS = 5;
 
@@ -34,14 +41,17 @@ export type AvailabilityReason = "balance" | "invalid" | "rateLimited" | "networ
  * 候选测试模型 ID（按优先级，去重）。
  *
  * 1. `/v1/models` 缓存里的 chat 模型（已过滤非 chat 端点）
- * 2. 兜底模型 ID（缓存为空时）
+ * 2. 缓存为空时用**被测 key** 拉一次列表（否则只剩单个兜底模型，
+ *    一旦它限流/超时就无候选可换，可用 key 会被误判为"无法确认"）
+ * 3. 拉取也失败 → 兜底模型 ID
  */
-async function pickTestModelIds(): Promise<string[]> {
-    const ids = [...(await getApiModelIds(undefined))];
+async function pickTestModelIds(apiKey: string): Promise<string[]> {
+    const ids = [...(await getApiModelIds(apiKey))];
     if (ids.length === 0) {
         return [FALLBACK_TEST_MODEL_ID];
     }
-    return ids.slice(0, MAX_TEST_MODELS);
+    // 去重（缓存理论上已唯一，但兜底模型可能也在列表里）
+    return [...new Set(ids)].slice(0, MAX_TEST_MODELS);
 }
 
 /**
@@ -53,7 +63,8 @@ async function pickTestModelIds(): Promise<string[]> {
  * - 聊天请求 401 → { ok: false, reason: "invalid" }
  * - 聊天请求 429 → 鉴权已通过（key 有效），换下一个候选模型再试；
  *   全部候选都 429 时返回 { ok: true, reason: "rateLimited" }
- * - 网络错误 / 超时 / 其他 → { ok: null, reason: "network" }（无法确定，保留原状态）
+ * - 单个候选超时 → 换下一个候选（慢模型不代表 key 无效）
+ * - 网络错误 / 全部候选超时 → { ok: null, reason: "network" }（无法确定，保留原状态）
  *
  * @returns reason: "balance" | "invalid" | "rateLimited" | "network" | undefined
  */
@@ -66,10 +77,15 @@ export async function testKeyAvailability(
         ? `${normalized}/chat/completions`
         : `${normalized}/v1/chat/completions`;
 
-    const candidates = await pickTestModelIds();
+    const candidates = await pickTestModelIds(entry.value);
+    const startedAt = Date.now();
     let sawRateLimit = false;
 
     for (const testModelId of candidates) {
+        // 总预算耗尽：不再尝试剩余候选（避免慢模型把检测拖成分钟级）
+        if (Date.now() - startedAt > TOTAL_BUDGET_MS) {
+            break;
+        }
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
         try {
@@ -107,7 +123,12 @@ export async function testKeyAvailability(
             // 400 "model not supported" / 404 / 5xx：测试模型选错或平台侧异常，
             // 换下一个候选模型再试。
         } catch {
-            // 网络错误 / 超时：换模型也一样，直接判无法确认。
+            if (controller.signal.aborted) {
+                // 本次请求超时：只说明该模型慢（如 Gemma-4-31B-IT 实测 28s），
+                // 不代表 key 无效 → 换下一个候选模型继续。
+                continue;
+            }
+            // 网络错误：换模型也一样，直接判无法确认。
             return { ok: null, reason: "network" };
         } finally {
             clearTimeout(timer);

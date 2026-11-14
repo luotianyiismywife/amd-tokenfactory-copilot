@@ -157,12 +157,14 @@ export function isTransientRetryError(err: unknown): boolean {
  * - 其他（未检测 / 余额不足 / 封号）→ "balance"
  */
 export function getKeyUnavailableReason(entry: ApiKeyEntry): string {
+    // 与 `getKeyDisplayStatus()` 保持同一优先级：持久化不可用（确定性失效）
+    // 压过瞬态冷却，避免两处对同一个 key 给出不同说法。
+    if (entry.available === false) {
+        return "unavailable";
+    }
     const transient = getTransientExhaustedInfo(entry.value);
     if (transient) {
         return transient.reason;
-    }
-    if (entry.available === false) {
-        return "unavailable";
     }
     return "balance";
 }

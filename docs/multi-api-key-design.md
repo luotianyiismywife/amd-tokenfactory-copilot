@@ -177,6 +177,29 @@ pickNextApiKey(secrets, mode):
 >
 > ⚠️ **测试模型不能只取列表第一个**（2026-11-14 实测）：`/v1/models` 的第一个通常是平台最热门模型（`DeepSeek-V4.1-Flash`），长期处于并发上限返回 429，会让可用 key 永远落到"无法确认"。现按候选列表依次尝试（最多 5 个），遇到 429 / 400 `model not supported` / 404 / 5xx 换下一个；全部候选都 429 时按可用处理（429 说明鉴权已通过，无效 key 返回的是 401）。
 
+#### 候选模型回退细则（`pickTestModelIds` + 循环）
+
+| 情形 | 处置 | 理由 |
+|------|------|------|
+| 候选列表为空（`/v1/models` 缓存未命中） | 用**被测 key** 拉一次 `/v1/models`；仍为空则用 `FALLBACK_TEST_MODEL_ID` | 只有单个兜底候选时，它一限流/超时就无候选可换，可用 key 会被误判为"无法确认"（2026-11-14 实测复现） |
+| 2xx | 立即返回 `{ok:true}` | 确定性结论 |
+| 401 | 立即返回 `{ok:false, reason:"invalid"}` | 确定性结论（无效 key / 封号，API 层不可区分） |
+| 402 / `INSUFFICIENT_BALANCE` / 余额不足 | 立即返回 `{ok:false, reason:"balance"}` | 确定性结论（当日 $1 额度耗尽） |
+| 429 | 记 `sawRateLimit`，**换下一个候选** | 鉴权已通过，只是该模型并发/限流；换模型可能拿到 200，结论更准 |
+| 400 `model not supported` / 404 / 5xx | **换下一个候选** | 测试模型选错或平台侧异常，与 key 有效性无关 |
+| **单个候选请求超时**（`controller.signal.aborted`） | **换下一个候选**（`continue`） | 超时只说明该模型慢，不代表 key 无效。实测 `Gemma-4-31B-IT` 首次 28.3s，其余模型 0.9–6.6s |
+| 网络错误（非超时，如 DNS/连接拒绝） | 立即返回 `{ok:null, reason:"network"}` | 换模型也一样，无法确定 |
+| 全部候选 429 | 返回 `{ok:true, reason:"rateLimited"}` | 鉴权已通过（无效 key 返回 401），key 有效 |
+| 全部候选超时 / 候选耗尽 | 返回 `{ok:null, reason:"network"}` | 无法确定，保留原状态 |
+
+**超时预算**（`src/keys/availability.ts`）：
+
+| 常量 | 值 | 说明 |
+|------|-----|------|
+| `REQUEST_TIMEOUT_MS` | `30_000` | 单个候选模型的请求超时。需大于最慢模型的首次响应（`Gemma-4-31B-IT` 实测 28.3s） |
+| `TOTAL_BUDGET_MS` | `60_000` | 全部候选尝试的总时间预算。每轮开始前检查，超预算即停止尝试剩余候选，避免慢模型把检测拖成分钟级 |
+| `MAX_TEST_MODELS` | `5` | 最多尝试的候选模型数 |
+
 ### 3.4 `src/provider/rotation.ts` — 轮换循环
 
 `runKeyRotationLoop(params)` 是唯一的轮换实现，聊天请求与 Git 提交生成共用：
